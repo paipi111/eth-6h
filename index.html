@@ -9,7 +9,7 @@
   <style>
     :root { --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; }
     [data-theme="dark"] { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; }
-    html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial; }
+    html, body {margin: 0;min-height: 100vh;   /* 改這裡 */background: var(--bg);color: var(--fg);font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial;}
     .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
     .row { display:flex; gap:16px; flex-wrap:wrap; }
     .card { background: var(--card); border: 1px solid rgba(148,163,184,.2); border-radius: 16px; padding: 16px; flex:1; min-width: 280px; }
