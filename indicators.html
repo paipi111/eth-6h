@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="light">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>指標實驗室｜乙太幣 6h</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    :root{
+      --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; --border:rgba(148,163,184,.25);
+    }
+    [data-theme="dark"]{
+      --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; --border:rgba(148,163,184,.25);
+    }
+    html,body{margin:0;min-height:100vh;background:var(--bg);color:var(--fg);
+      font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial}
+    a{color:var(--accent);text-decoration:none}
+    .container{max-width:1200px;margin:0 auto;padding:16px}
+    .header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .title{font-size:20px;font-weight:800}
+    .muted{color:var(--muted)}
+    .btn{border:1px solid var(--border);background:transparent;color:var(--fg);
+      padding:8px 12px;border-radius:12px;cursor:pointer}
+    .btn.primary{border-color:var(--accent)}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+    .tab{padding:8px 12px;border:1px solid var(--border);border-radius:999px;cursor:pointer}
+    .tab.active{border-color:var(--accent)}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .mono{font-family:ui-monospace,SFMono-Regular,Consolas,Monaco,Menlo,monospace}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="title">指標實驗室｜乙太幣 6h</div>
+        <div class="muted">乾淨分頁、按鈕切換；上線 API 後自動吃數據。</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="muted mono">API：
+          <input id="apiBase" class="mono" placeholder="（留空=範例數據）"
+                 style="width:280px;padding:6px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--fg)"/>
+        </span>
+        <button id="themeToggle" class="btn">切換：<span id="themeLabel">白</span> / 黑</button>
+        <a href="./index.html" class="btn">回主頁</a>
+        <button id="reload" class="btn primary">重新整理</button>
+      </div>
+    </div>
+
+    <!-- 類別群組 -->
+    <div class="card" style="margin-top:12px">
+      <div class="muted" style="margin-bottom:8px">價格型</div>
+      <div class="tabs" id="tabs-price">
+        <button class="tab" data-tab="EMA">EMA(6/24/56)</button>
+        <button class="tab" data-tab="RSI">RSI(14)</button>
+        <button class="tab" data-tab="MACD">MACD(12,26,9)</button>
+        <button class="tab" data-tab="KDJ">KDJ(9,3,3)</button>
+        <button class="tab" data-tab="BOLL">Bollinger(20,2)</button>
+        <button class="tab" data-tab="ATR">ATR(14)</button>
+      </div>
+      <div id="view-price" class="card" style="height:420px"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="muted" style="margin-bottom:8px">衍生品/因子</div>
+      <div class="tabs" id="tabs-deriv">
+        <button class="tab" data-tab="BASIS">BASIS_O/C &amp; 變化率</button>
+        <button class="tab" data-tab="WHALE">WHale 指數</button>
+        <button class="tab" data-tab="CBPREM">Coinbase 溢價</button>
+        <button class="tab" data-tab="RET">報酬率 R6%/LR6/R24%/LR24</button>
+        <button class="tab" data-tab="ATR14">ATR14 (6h 粒度)</button>
+      </div>
+      <div id="view-deriv" class="card" style="height:360px"></div>
+    </div>
+
+    <div class="muted" style="text-align:center;margin:18px 0">
+      表格來源（未來 API 亦同結構）：K 線 <span class="mono">price_ohlcv_6h</span>；特徵/因子 <span class="mono">features_6h</span>。:contentReference[oaicite:0]{index=0}
+    </div>
+  </div>
+
+  <script src="./indicators.js"></script>
+</body>
+</html>
