@@ -7,49 +7,57 @@
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <style>
     :root{
-      --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; --border:rgba(148,163,184,.25);
+      --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc;
+      --accent:#2563eb; --border:rgba(148,163,184,.25);
     }
     [data-theme="dark"]{
-      --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; --border:rgba(148,163,184,.25);
+      --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a;
+      --accent:#60a5fa; --border:rgba(148,163,184,.25);
     }
-    html,body{margin:0;min-height:100vh;background:var(--bg);color:var(--fg);
+    html,body{margin:0; background:var(--bg); color:var(--fg);
       font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial}
-    a{color:var(--accent);text-decoration:none}
-    .container{max-width:1200px;margin:0 auto;padding:16px}
-    .header{display:flex;align-items:center;justify-content:space-between;gap:12px}
-    .title{font-size:20px;font-weight:800}
-    .muted{color:var(--muted)}
-    .btn{border:1px solid var(--border);background:transparent;color:var(--fg);
-      padding:8px 12px;border-radius:12px;cursor:pointer}
-    .btn.primary{border-color:var(--accent)}
-    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
-    .tab{padding:8px 12px;border:1px solid var(--border);border-radius:999px;cursor:pointer}
-    .tab.active{border-color:var(--accent)}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .container{max-width:1200px; margin:0 auto; padding:16px}
     .mono{font-family:ui-monospace,SFMono-Regular,Consolas,Monaco,Menlo,monospace}
+
+    /* 右上角：一行文字導覽列 */
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:16px; padding:8px 0;
+    }
+    .brand{ font-weight:800; font-size:18px; flex:1; min-width:0; }
+    .nav{ display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:14px; }
+    .nav a, .nav span, .nav label{ color:var(--fg); text-decoration:none; cursor:pointer; white-space:nowrap; }
+    .nav input{
+      width:280px; padding:6px; border-radius:8px;
+      border:1px solid var(--border); background:transparent; color:var(--fg);
+    }
+
+    .muted{ color:var(--muted); }
+    .card{ background:var(--card); border:1px solid var(--border); border-radius:16px; padding:12px }
+    .tabs{ display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+    .tab{ padding:6px 10px; border:1px solid var(--border); border-radius:999px; cursor:pointer; }
+    .tab.active{ border-color:var(--accent); }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <div>
-        <div class="title">指標實驗室｜乙太幣 6h</div>
-        <div class="muted">乾淨分頁、按鈕切換；上線 API 後自動吃數據。</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <span class="muted mono">API：
-          <input id="apiBase" class="mono" placeholder="（留空=範例數據）"
-                 style="width:280px;padding:6px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--fg)"/>
-        </span>
-        <button id="themeToggle" class="btn">切換：<span id="themeLabel">白</span> / 黑</button>
-        <a href="./index.html" class="btn">回主頁</a>
-        <button id="reload" class="btn primary">重新整理</button>
-      </div>
-    </div>
 
-    <!-- 類別群組 -->
-    <div class="card" style="margin-top:12px">
+    <!-- 右上角：一行文字導覽列（與主頁一致） -->
+    <header class="topbar">
+      <div class="brand">指標實驗室｜乙太幣 6h</div>
+      <nav class="nav">
+        <label class="mono">API：
+          <input id="apiBase" class="mono" placeholder="（留空=範例數據）" />
+        </label>
+        <span id="themeToggle">切換主題</span>
+        <span id="reload">重新整理</span>
+        <a href="./index.html">主頁</a>
+        <a href="./indicators.html">指標實驗室</a>
+      </nav>
+    </header>
+
+    <!-- 價格型 -->
+    <section class="card" style="margin-top:12px">
       <div class="muted" style="margin-bottom:8px">價格型</div>
       <div class="tabs" id="tabs-price">
         <button class="tab" data-tab="EMA">EMA(6/24/56)</button>
@@ -60,25 +68,24 @@
         <button class="tab" data-tab="ATR">ATR(14)</button>
       </div>
       <div id="view-price" class="card" style="height:420px"></div>
-    </div>
+    </section>
 
-    <div class="card" style="margin-top:12px">
-      <div class="muted" style="margin-bottom:8px">衍生品/因子</div>
+    <!-- 衍生品 / 因子 -->
+    <section class="card" style="margin-top:12px">
+      <div class="muted" style="margin-bottom:8px">衍生品 / 因子</div>
       <div class="tabs" id="tabs-deriv">
-        <button class="tab" data-tab="BASIS">BASIS_O/C &amp; 變化率</button>
-        <button class="tab" data-tab="WHALE">WHale 指數</button>
+        <button class="tab" data-tab="BASIS">BASIS_O/C 與變化率</button>
+        <button class="tab" data-tab="WHALE">巨鯨指數</button>
         <button class="tab" data-tab="CBPREM">Coinbase 溢價</button>
-        <button class="tab" data-tab="RET">報酬率 R6%/LR6/R24%/LR24</button>
-        <button class="tab" data-tab="ATR14">ATR14 (6h 粒度)</button>
+        <button class="tab" data-tab="RET">R6% / LR6 / R24% / LR24</button>
+        <button class="tab" data-tab="ATR14">ATR14（6h 粒度）</button>
       </div>
-      <div id="view-deriv" class="card" style="height:360px"></div>
-    </div>
+      <div id="view-deriv" class="card" style="height:380px"></div>
+    </section>
 
-    <div class="muted" style="text-align:center;margin:18px 0">
-      表格來源（未來 API 亦同結構）：K 線 <span class="mono">price_ohlcv_6h</span>；特徵/因子 <span class="mono">features_6h</span>。:contentReference[oaicite:0]{index=0}
-    </div>
   </div>
 
+  <!-- 指標分頁的邏輯 -->
   <script src="./indicators.js"></script>
 </body>
 </html>
