@@ -7,64 +7,23 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <style>
-    /* ====== 主題變數 ====== */
-    :root { --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; --border:rgba(148,163,184,.25); }
-    [data-theme="dark"] { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; --border:rgba(148,163,184,.20); }
-
-    /* ====== 防白邊強化（僅 CSS 變更，其他不動） ====== */
-    html, body { 
-      margin: 0 !important; padding:0 !important;
-      width:100%; height:100%; min-height:100%;
-      background: var(--bg) !important; color: var(--fg);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial;
-      scroll-behavior: smooth;
-      overscroll-behavior: none;             /* 防拉動時露白 */
-      -webkit-tap-highlight-color: transparent;
-      background-attachment: fixed;          /* 防視差露白 */
-    }
-    /* 首屏在樣式載入前的保險（避免閃白） */
-    @media (prefers-color-scheme: dark) {
-      :root { color-scheme: dark; }
-    }
-    * { box-sizing: border-box; }
-    /* 移除所有元素預設 margin，避免邊緣撐出空白 */
-    h1,h2,h3,h4,h5,h6,p,ul,ol,figure { margin:0; }
-
-    /* 滾動條也套背景，避免白色滾動條軌道造成白邊錯覺（Chromium/WebKit） */
-    ::-webkit-scrollbar { width:12px; background: var(--bg); }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: rgba(148,163,184,.35); border-radius: 8px; border: 3px solid var(--bg); }
-
-    /* 其餘原樣式（未改動） */
+    :root { --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; }
+    [data-theme="dark"] { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; }
+    html, body {margin: 0;min-height: 100vh;   /* 改這裡 */background: var(--bg);color: var(--fg);font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial;}
     .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; }
+    .card { background: var(--card); border: 1px solid rgba(148,163,184,.2); border-radius: 16px; padding: 16px; flex:1; min-width: 280px; }
     .header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
     .title { font-size: 20px; font-weight: 700; }
     .muted { color: var(--muted); }
     .btn { border:1px solid rgba(148,163,184,.4); background:transparent; color:var(--fg); padding:8px 12px; border-radius: 12px; cursor:pointer; }
     .btn.primary { border-color: var(--accent); }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace; }
-
-    /* nav tabs */
-    .tabs { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .tab { appearance:none; border:none; background:transparent; color:var(--fg); padding:8px 6px; font-weight:700; cursor:pointer; opacity:.75; border-bottom:2px solid transparent; }
-    .tab:hover { opacity:1; }
-    .tab.active { opacity:1; border-bottom-color: var(--accent); }
-
-    .hr { height:1px; background:var(--border); margin:10px 0 16px; }
-
-    /* cards */
-    .row { display:flex; gap:16px; flex-wrap:wrap; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px; flex:1; min-width: 280px; }
-    .card .title { font-size:18px; }
     .grid2 { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:12px; }
     .grid3 { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:12px; }
-    table.metrics { width:100%; border-collapse: collapse; }
-    table.metrics th, table.metrics td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align:left; }
-
-    /* pages */
-    .page { display:none; }
-    .page.active { display:block; }
     .footer { text-align:center; font-size:12px; margin: 24px auto; color:var(--muted); }
+    table.metrics { width:100%; border-collapse: collapse; }
+    table.metrics th, table.metrics td { padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,.25); text-align:left; }
   </style>
 </head>
 <body data-theme="light">
@@ -74,82 +33,66 @@
         <div class="title">乙太幣 6h 預測 · 專題展示（公開版）</div>
         <div class="muted">此頁可獨立部署（含範例資料）。有線上 API 時，右上角改 API Base 即可。</div>
       </div>
-      <div style="display:flex; gap:8px; align-items:center;">
+      <div style="display:flex; gap:8px;">
         <div class="muted mono">API: <input id="apiBase" class="mono" style="width:280px; padding:6px; border-radius:8px; border:1px solid rgba(148,163,184,.35); background:transparent; color:var(--fg);" value="" placeholder="（留空=用內建範例）" /></div>
         <button id="themeToggle" class="btn">切換：<span id="themeLabel">白</span> / 黑</button>
         <button id="refreshBtn" class="btn primary">重新整理</button>
       </div>
     </div>
 
-    <!-- 左上角純文字分頁按鈕 -->
-    <div class="tabs" style="margin-top:12px;">
-      <button class="tab active" data-tab="price">價格預測</button>
-      <button class="tab" data-tab="imp">模型重要度</button>
-      <button class="tab" data-tab="feat">最新指標</button>
-      <button class="tab" data-tab="model">模型資訊</button>
-      <button class="tab" data-tab="bt">回測</button>
+    <div class="row" style="margin-top:12px;">
+      <div class="card" style="flex:2;">
+        <div class="header" style="margin-bottom:8px;">
+          <div class="title">價格與預測</div>
+        </div>
+        <div id="chart" style="height:420px;"></div>
+      </div>
+      <div class="card" style="flex:1;">
+        <div class="grid2">
+          <div><div class="muted">方向</div><div id="dir" style="font-size:28px; font-weight:800;">—</div></div>
+          <div><div class="muted">預估漲跌幅</div><div id="delta" style="font-size:28px; font-weight:800;">—</div></div>
+          <div><div class="muted">信心度</div><div id="conf" style="font-size:24px; font-weight:700;">—</div></div>
+          <div><div class="muted">區間 (±)</div><div id="band" style="font-size:24px; font-weight:700;">—</div></div>
+        </div>
+        <div class="muted" style="margin-top:12px;">最新預測時間：<span id="predTs" class="mono">—</span></div>
+        <div style="margin-top:12px;">
+          <a id="tgButton" class="btn" href="https://t.me/eth6h_predict_bot" target="_blank">到 Telegram 訂閱預測</a>
+        </div>
+      </div>
     </div>
-    <div class="hr"></div>
 
-    <!-- Pages -->
-    <section id="page-price" class="page active">
-      <div class="row">
-        <div class="card" style="flex:2;">
-          <div class="title" style="margin-bottom:8px;">價格與預測</div>
-          <div id="chart" style="height:460px;"></div>
-        </div>
-        <div class="card" style="flex:1;">
-          <div class="grid2">
-            <div><div class="muted">方向</div><div id="dir" style="font-size:28px; font-weight:800;">—</div></div>
-            <div><div class="muted">預估漲跌幅</div><div id="delta" style="font-size:28px; font-weight:800;">—</div></div>
-            <div><div class="muted">信心度</div><div id="conf" style="font-size:24px; font-weight:700;">—</div></div>
-            <div><div class="muted">區間 (±)</div><div id="band" style="font-size:24px; font-weight:700;">—</div></div>
-          </div>
-          <div class="muted" style="margin-top:12px;">最新預測時間：<span id="predTs" class="mono">—</span></div>
-          <div style="margin-top:12px;">
-            <a id="tgButton" class="btn" href="https://t.me/eth6h_predict_bot" target="_blank">到 Telegram 訂閱預測</a>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="page-imp" class="page">
-      <div class="card">
+    <div class="row">
+      <div class="card" style="flex:1;">
         <div class="title">模型重要度</div>
-        <div id="impChart" style="height:360px;"></div>
+        <div id="impChart" style="height:300px;"></div>
       </div>
-    </section>
-
-    <section id="page-feat" class="page">
-      <div class="card">
+      <div class="card" style="flex:1;">
         <div class="title">最新指標</div>
         <div class="grid3" id="featGrid"></div>
       </div>
-    </section>
+    </div>
 
-    <section id="page-model" class="page">
+    <div class="row">
       <div class="card">
         <div class="title">模型資訊</div>
         <div id="modelInfo" class="mono" style="white-space:pre-wrap; margin-top:8px;"></div>
       </div>
-    </section>
+    </div>
 
-    <section id="page-bt" class="page">
-      <div class="row">
-        <div class="card" style="flex:1;">
-          <div class="title">最近 N 次預測回測</div>
-          <div class="muted">資料來源：/data/backtest_sample.json（或你的 API） · N 由資料長度決定</div>
-          <div id="cmChart" style="height:360px; margin-top:8px;"></div>
-        </div>
-        <div class="card" style="flex:1;">
-          <div class="title">回測指標</div>
-          <table class="metrics" id="btMetrics"></table>
-        </div>
+    <div class="row">
+      <div class="card" style="flex:1;">
+        <div class="title">最近 N 次預測回測</div>
+        <div class="muted">資料來源：/data/backtest_sample.json（或你的 API） · N 可由資料長度決定</div>
+        <div id="cmChart" style="height:320px; margin-top:8px;"></div>
       </div>
-    </section>
+      <div class="card" style="flex:1;">
+        <div class="title">回測指標</div>
+        <table class="metrics" id="btMetrics"></table>
+      </div>
+    </div>
 
     <div class="footer">
-      Demo 使用 <a href="https://echarts.apache.org" target="_blank">Apache ECharts</a>。URL 參數：<span class="mono">?theme=dark&bot=USERNAME</span>。
+      Demo 使用 <a href="https://echarts.apache.org" target="_blank">Apache ECharts</a>。URL 支援參數：<span class="mono">?theme=dark&bot=USERNAME</span>。
     </div>
   </div>
 
