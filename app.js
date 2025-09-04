@@ -1,8 +1,8 @@
-
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const params = new URLSearchParams(window.location.search);
 
-const state = { history:null, predict:null, backtest:null, charts:{} };
+const state = { history:null, predict:null, backtest:null, charts:{}, activeTab:'price' };
 
 function getApiBase() {
   const val = $("#apiBase").value.trim();
@@ -21,25 +21,20 @@ async function fetchJson(url) {
 async function loadData() {
   const base = getApiBase();
   const useApi = !!base;
-  try {
-    if (useApi) {
-      const [hist, pred, back] = await Promise.all([
-        fetchJson(base + "/api/history?symbol=ETHUSDT&interval=6h&limit=200"),
-        fetchJson(base + "/api/predict?symbol=ETHUSDT&horizon=6h"),
-        fetchJson(base + "/api/backtest?symbol=ETHUSDT&horizon=6h&limit=200")
-      ]);
-      state.history = hist; state.predict = pred; state.backtest = back;
-    } else {
-      const [hist, pred, back] = await Promise.all([
-        fetchJson("./data/history_6h_sample.json"),
-        fetchJson("./data/predict_sample.json"),
-        fetchJson("./data/backtest_sample.json")
-      ]);
-      state.history = hist; state.predict = pred; state.backtest = back;
-    }
-  } catch (e) {
-    console.warn("載入資料失敗", e);
-    throw e;
+  if (useApi) {
+    const [hist, pred, back] = await Promise.all([
+      fetchJson(base + "/api/history?symbol=ETHUSDT&interval=6h&limit=200"),
+      fetchJson(base + "/api/predict?symbol=ETHUSDT&horizon=6h"),
+      fetchJson(base + "/api/backtest?symbol=ETHUSDT&horizon=6h&limit=200")
+    ]);
+    state.history = hist; state.predict = pred; state.backtest = back;
+  } else {
+    const [hist, pred, back] = await Promise.all([
+      fetchJson("./data/history_6h_sample.json"),
+      fetchJson("./data/predict_sample.json"),
+      fetchJson("./data/backtest_sample.json")
+    ]);
+    state.history = hist; state.predict = pred; state.backtest = back;
   }
 }
 
@@ -138,7 +133,6 @@ function renderImportancesAndFeatures() {
 }
 
 function confusionMatrixAndMetrics() {
-  // Expect state.backtest like: [{timestamp, pred_dir, actual_dir, confidence, delta_pred, delta_actual}, ...]
   const rows = (state.backtest?.data || []);
   const N = rows.length;
   let TP=0, TN=0, FP=0, FN=0;
@@ -155,7 +149,6 @@ function confusionMatrixAndMetrics() {
   const rec = (TP+FN) ? TP/(TP+FN) : 0;
   const f1 = (prec+rec) ? 2*prec*rec/(prec+rec) : 0;
 
-  // Render heatmap
   state.charts.cm.setOption({
     tooltip: { position: 'top' },
     grid: { left: 80, right: 20, top: 40, bottom: 20 },
@@ -163,17 +156,12 @@ function confusionMatrixAndMetrics() {
     yAxis: { type: 'category', data: ['up','down'], axisLabel:{ color:'var(--muted)' }},
     visualMap: { min: 0, max: Math.max(1, TP+TN+FP+FN), calculable: false, orient: 'horizontal', left: 'center', bottom: 0 },
     series: [{
-      name: 'Confusion',
-      type: 'heatmap',
-      data: [
-        [1,0,TP],[2,0,FP],
-        [1,1,FN],[2,1,TN]
-      ],
+      name: 'Confusion', type: 'heatmap',
+      data: [ [1,0,TP],[2,0,FP], [1,1,FN],[2,1,TN] ],
       label: { show: true }
     }]
   });
 
-  // Metrics table
   const tbl = $("#btMetrics");
   tbl.innerHTML = `
     <tr><th>樣本數 N</th><td class="mono">${N}</td></tr>
@@ -184,16 +172,29 @@ function confusionMatrixAndMetrics() {
   `;
 }
 
+function switchTab(tabKey){
+  state.activeTab = tabKey;
+  // navbar
+  $$(".tab").forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabKey));
+  // pages
+  ["price","imp","feat","model","bt"].forEach(k => {
+    const el = document.getElementById(`page-${k}`);
+    el.classList.toggle('active', k === tabKey);
+  });
+  // fix chart sizing when revealing a hidden canvas
+  if (tabKey === 'price' && state.charts.price) state.charts.price.resize();
+  if (tabKey === 'imp' && state.charts.imp) state.charts.imp.resize();
+  if (tabKey === 'bt' && state.charts.cm) state.charts.cm.resize();
+}
+
 async function main() {
-  // theme & bot param
   if (params.get('theme') === 'dark') {
     document.body.setAttribute('data-theme', 'dark');
     $("#themeLabel").textContent = '黑';
   }
   const bot = params.get('bot');
-  if (bot) {
-    $("#tgButton").href = `https://t.me/${bot}`;
-  }
+  if (bot) $("#tgButton").href = `https://t.me/${bot}`;
+
   await loadData();
   ensureCharts();
   renderPriceAndPredict();
@@ -201,13 +202,16 @@ async function main() {
   confusionMatrixAndMetrics();
 }
 
+// events
 $("#refreshBtn").addEventListener('click', main);
 $("#themeToggle").addEventListener('click', () => {
   const now = document.body.getAttribute('data-theme');
   const next = now === 'light' ? 'dark' : 'light';
   document.body.setAttribute('data-theme', next);
   $("#themeLabel").textContent = next === 'light' ? '白' : '黑';
-  // no need to re-render charts except resizing colors; keep it simple
 });
+
+// tab click
+$$(".tab").forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 
 main();
