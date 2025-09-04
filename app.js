@@ -1,12 +1,22 @@
-
 const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(window.location.search);
 
 const state = { history:null, predict:null, backtest:null, charts:{} };
 
+// 讀取 CSS 變數
+const getVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim() || "#e5e7eb";
+function themeColors() {
+  return {
+    fg: getVar('--fg'),
+    muted: getVar('--muted'),
+    accent: getVar('--accent'),
+    grid: 'rgba(148,163,184,.2)',
+  };
+}
+
 function getApiBase() {
-  const val = $("#apiBase").value.trim();
-  return val || ""; // empty means use local samples
+  const val = $("#apiBase") ? $("#apiBase").value.trim() : "";
+  return val || ""; // 空的時候用範例資料
 }
 
 function fmtPct(x) { return (x>0?"+":"") + x.toFixed(2) + "%"; }
@@ -21,25 +31,20 @@ async function fetchJson(url) {
 async function loadData() {
   const base = getApiBase();
   const useApi = !!base;
-  try {
-    if (useApi) {
-      const [hist, pred, back] = await Promise.all([
-        fetchJson(base + "/api/history?symbol=ETHUSDT&interval=6h&limit=200"),
-        fetchJson(base + "/api/predict?symbol=ETHUSDT&horizon=6h"),
-        fetchJson(base + "/api/backtest?symbol=ETHUSDT&horizon=6h&limit=200")
-      ]);
-      state.history = hist; state.predict = pred; state.backtest = back;
-    } else {
-      const [hist, pred, back] = await Promise.all([
-        fetchJson("./data/history_6h_sample.json"),
-        fetchJson("./data/predict_sample.json"),
-        fetchJson("./data/backtest_sample.json")
-      ]);
-      state.history = hist; state.predict = pred; state.backtest = back;
-    }
-  } catch (e) {
-    console.warn("載入資料失敗", e);
-    throw e;
+  if (useApi) {
+    const [hist, pred, back] = await Promise.all([
+      fetchJson(base + "/api/history?symbol=ETHUSDT&interval=6h&limit=200"),
+      fetchJson(base + "/api/predict?symbol=ETHUSDT&horizon=6h"),
+      fetchJson(base + "/api/backtest?symbol=ETHUSDT&horizon=6h&limit=200")
+    ]);
+    state.history = hist; state.predict = pred; state.backtest = back;
+  } else {
+    const [hist, pred, back] = await Promise.all([
+      fetchJson("./data/history_6h_sample.json"),
+      fetchJson("./data/predict_sample.json"),
+      fetchJson("./data/backtest_sample.json")
+    ]);
+    state.history = hist; state.predict = pred; state.backtest = back;
   }
 }
 
@@ -76,21 +81,23 @@ function renderPriceAndPredict() {
       { name:'區間高', xAxis: nextTs, yAxis: high },
     ];
   }
+  const C = themeColors();
   state.charts.price.setOption({
     backgroundColor: 'transparent',
     animation: true,
+    textStyle: { color: C.fg },
     grid: { left: 50, right: 20, top: 10, bottom: 40 },
-    xAxis: { type:'category', data: categories, axisLabel:{ color: 'var(--muted)' } },
-    yAxis: { scale: true, axisLabel:{ color: 'var(--muted)' }, splitLine:{ lineStyle:{ color:'rgba(148,163,184,.2)'} } },
-    dataZoom: [{ type:'inside' }, { type:'slider' }],
+    xAxis: { type:'category', data: categories, axisLabel:{ color: C.muted } },
+    yAxis: { scale: true, axisLabel:{ color: C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    dataZoom: [{ type:'inside' }, { type:'slider', textStyle:{ color: C.muted } }],
+    tooltip: { trigger:'axis', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid },
     series: [
       { type:'candlestick', name:'ETH 6h', data: kdata,
         itemStyle: { color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' },
         markArea: { data: markArea },
-        markLine: { symbol:['none','none'], data: markLine, lineStyle:{ type:'dashed' } },
+        markLine: { symbol:['none','none'], data: markLine, lineStyle:{ type:'dashed' }, label:{ show:true, color:C.fg } },
       }
-    ],
-    tooltip: { trigger:'axis' }
+    ]
   });
 
   if (pred) {
@@ -107,13 +114,15 @@ function renderImportancesAndFeatures() {
   const imp = (pred.importances || []).slice().sort((a,b)=>b[1]-a[1]);
   const impNames = imp.map(x=>x[0]);
   const impVals = imp.map(x=>x[1]);
+  const C = themeColors();
   state.charts.imp.setOption({
     backgroundColor:'transparent',
+    textStyle:{ color: C.fg },
     grid:{ left: 80, right: 20, top: 20, bottom: 30 },
-    xAxis:{ type:'value', axisLabel:{ color:'var(--muted)'} },
-    yAxis:{ type:'category', data: impNames, axisLabel:{ color:'var(--muted)' } },
-    series:[{ type:'bar', data: impVals, name:'重要度' }],
-    tooltip:{}
+    xAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    yAxis:{ type:'category', data: impNames, axisLabel:{ color:C.muted } },
+    series:[{ type:'bar', data: impVals, name:'重要度', label:{ show:false, color:C.fg } }],
+    tooltip:{ textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid }
   });
 
   const grid = $("#featGrid");
@@ -138,7 +147,6 @@ function renderImportancesAndFeatures() {
 }
 
 function confusionMatrixAndMetrics() {
-  // Expect state.backtest like: [{timestamp, pred_dir, actual_dir, confidence, delta_pred, delta_actual}, ...]
   const rows = (state.backtest?.data || []);
   const N = rows.length;
   let TP=0, TN=0, FP=0, FN=0;
@@ -155,13 +163,15 @@ function confusionMatrixAndMetrics() {
   const rec = (TP+FN) ? TP/(TP+FN) : 0;
   const f1 = (prec+rec) ? 2*prec*rec/(prec+rec) : 0;
 
-  // Render heatmap
+  const C = themeColors();
   state.charts.cm.setOption({
-    tooltip: { position: 'top' },
+    tooltip: { position: 'top', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid },
+    textStyle:{ color: C.fg },
     grid: { left: 80, right: 20, top: 40, bottom: 20 },
     xAxis: { type: 'category', data: ['預測↓ / 真實→','up','down'], show: false },
-    yAxis: { type: 'category', data: ['up','down'], axisLabel:{ color:'var(--muted)' }},
-    visualMap: { min: 0, max: Math.max(1, TP+TN+FP+FN), calculable: false, orient: 'horizontal', left: 'center', bottom: 0 },
+    yAxis: { type: 'category', data: ['up','down'], axisLabel:{ color: C.muted }},
+    visualMap: { min: 0, max: Math.max(1, TP+TN+FP+FN), calculable: false, orient: 'horizontal', left: 'center', bottom: 0,
+                 textStyle:{ color: C.muted } },
     series: [{
       name: 'Confusion',
       type: 'heatmap',
@@ -169,11 +179,10 @@ function confusionMatrixAndMetrics() {
         [1,0,TP],[2,0,FP],
         [1,1,FN],[2,1,TN]
       ],
-      label: { show: true }
+      label: { show: true, color: C.fg }
     }]
   });
 
-  // Metrics table
   const tbl = $("#btMetrics");
   tbl.innerHTML = `
     <tr><th>樣本數 N</th><td class="mono">${N}</td></tr>
@@ -185,7 +194,6 @@ function confusionMatrixAndMetrics() {
 }
 
 async function main() {
-  // theme & bot param
   if (params.get('theme') === 'dark') {
     document.body.setAttribute('data-theme', 'dark');
     $("#themeLabel").textContent = '黑';
@@ -202,12 +210,15 @@ async function main() {
 }
 
 $("#refreshBtn").addEventListener('click', main);
+
 $("#themeToggle").addEventListener('click', () => {
   const now = document.body.getAttribute('data-theme');
   const next = now === 'light' ? 'dark' : 'light';
   document.body.setAttribute('data-theme', next);
   $("#themeLabel").textContent = next === 'light' ? '白' : '黑';
-  // no need to re-render charts except resizing colors; keep it simple
+  renderPriceAndPredict();
+  renderImportancesAndFeatures();
+  confusionMatrixAndMetrics();
 });
 
 main();
