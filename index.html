@@ -4,46 +4,31 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>乙太幣 6h 預測・專題展示（公開版）</title>
-
-  <!-- ECharts -->
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-
-  <!-- 全站主題變數（白/黑通用） -->
   <style>
     :root{
-      --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc;
-      --accent:#2563eb; --border:rgba(148,163,184,.25);
+      --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --border:rgba(148,163,184,.25);
     }
     [data-theme="dark"]{
-      --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a;
-      --accent:#60a5fa; --border:rgba(148,163,184,.25);
+      --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --border:rgba(148,163,184,.25);
     }
     html,body{margin:0; background:var(--bg); color:var(--fg);
       font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial}
     .container{max-width:1200px; margin:0 auto; padding:16px}
     .mono{font-family:ui-monospace,SFMono-Regular,Consolas,Monaco,Menlo,monospace}
-
-    /* 右上角「一行文字」導覽列 */
-    .topbar{
-      display:flex; align-items:center; justify-content:space-between;
-      gap:16px; padding:8px 0;
-    }
-    .brand{ font-weight:800; font-size:18px; flex:1; min-width:0; }
-    .nav{ display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:14px; }
-    .nav a, .nav span, .nav label{ color:var(--fg); text-decoration:none; cursor:pointer; white-space:nowrap; }
-    .nav input{
-      width:280px; padding:6px; border-radius:8px;
-      border:1px solid var(--border); background:transparent; color:var(--fg);
-    }
-
-    /* 主要內容外框（保持原有風格） */
+    .topbar{display:flex; align-items:center; justify-content:space-between; gap:16px; padding:8px 0;}
+    .brand{font-weight:800; font-size:18px; flex:1; min-width:0;}
+    .nav{display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:14px;}
+    .nav a,.nav span,.nav label{color:var(--fg); text-decoration:none; cursor:pointer; white-space:nowrap;}
+    .nav input{width:280px; padding:6px; border-radius:8px; border:1px solid var(--border);
+      background:transparent; color:var(--fg);}
     .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:12px}
+    h3{margin:4px 0 8px 0; color:var(--muted); font-weight:700; font-size:14px;}
   </style>
 </head>
 <body>
   <div class="container">
-
-    <!-- 右上角：一行文字導覽列（保留原本 JS 綁定的 id） -->
+    <!-- 右上角一行文字導覽列（保留 app.js 用到的 id） -->
     <header class="topbar">
       <div class="brand">乙太幣 6h 預測・專題展示（公開版）</div>
       <nav class="nav">
@@ -57,47 +42,23 @@
       </nav>
     </header>
 
-    <!-- ===== 下面是你的原本頁面內容 =====
-         ✅ 重點：我沒有改你的內容結構與 ID，app.js 可以照常抓到。
-         你若已經有完整內容，直接保留就好；如果你要重貼，貼在 <main> 裡即可。 -->
-    <main id="page">
+    <!-- ✅ 下列三個容器 ID 一定要對上 app.js：chart / impChart / cmChart -->
+    <section class="card" style="margin-top:12px">
+      <h3>價格與預測</h3>
+      <div id="chart" style="height:420px"></div>
+    </section>
 
-      <!-- 範例：若你的主頁原本就有卡片/圖表，保持現有結構即可。
-           我放幾個常見外框示意，方便你比對。你可以直接把你原本的
-           區塊貼回來（如：價格圖、重要度、最新指標、模型資訊、回測/混淆矩陣等）。 -->
+    <section class="card" style="margin-top:12px">
+      <h3>模型重要度</h3>
+      <div id="impChart" style="height:260px"></div>
+    </section>
 
-      <section class="card" id="priceSection" style="margin-top:12px">
-        <h3 style="margin:4px 0 8px 0; color:var(--muted)">價格與預測</h3>
-        <div id="priceChart" style="height:420px"></div>
-      </section>
-
-      <section class="card" id="featureSection" style="margin-top:12px">
-        <h3 style="margin:4px 0 8px 0; color:var(--muted)">模型重要度</h3>
-        <div id="featureImportance" style="height:260px"></div>
-      </section>
-
-      <section class="card" id="latestMetricsSection" style="margin-top:12px">
-        <h3 style="margin:4px 0 8px 0; color:var(--muted)">最新指標</h3>
-        <div id="latestIndicators" style="min-height:120px"></div>
-      </section>
-
-      <section class="card" id="modelInfoSection" style="margin-top:12px">
-        <h3 style="margin:4px 0 8px 0; color:var(--muted)">模型資訊</h3>
-        <pre id="modelInfo" class="mono" style="white-space:pre-wrap; margin:0"></pre>
-      </section>
-
-      <section class="card" id="backtestSection" style="margin-top:12px">
-        <h3 style="margin:4px 0 8px 0; color:var(--muted)">最近 N 次預測回測 / 混淆矩陣</h3>
-        <div id="confusionHeatmap" style="height:260px"></div>
-        <div id="backtestMetrics" style="margin-top:8px"></div>
-      </section>
-
-    </main>
-    <!-- ===== 你的原本頁面內容到此結束 ===== -->
-
+    <section class="card" style="margin-top:12px">
+      <h3>最近 N 次預測回測 / 混淆矩陣</h3>
+      <div id="cmChart" style="height:260px"></div>
+    </section>
   </div>
 
-  <!-- 你的主程式（不要改檔名/路徑） -->
   <script src="./app.js"></script>
 </body>
 </html>
