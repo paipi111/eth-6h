@@ -30,34 +30,34 @@
   <div class="container">
     <!-- 右上角一行文字導覽列（保留 app.js 用到的 id） -->
     <header class="topbar">
-      <div class="brand">乙太幣 6h 預測・專題展示（公開版）</div>
-      <nav class="nav">
-        <label class="mono">API：
-          <input id="apiBase" class="mono" placeholder="（留空=內建範例）" />
-        </label>
-        <span id="themeToggle">切換主題</span>
-        <span id="refreshBtn">重新整理</span>
-        <a href="./index.html">主頁</a>
-        <a href="./indicators.html">指標實驗室</a>
-      </nav>
-    </header>
+      <!-- 頁面標題 -->
+<h1 style="margin: 4px 0 8px 0; font-size:18px; font-weight:800;">
+  乙太幣 6h 預測・專題展示（公開版）
+</h1>
 
-    <!-- ✅ 下列三個容器 ID 一定要對上 app.js：chart / impChart / cmChart -->
-    <section class="card" style="margin-top:12px">
-      <h3>價格與預測</h3>
-      <div id="chart" style="height:420px"></div>
-    </section>
+<!-- 左上方工具列：只有一顆「指標實驗室」按鈕 -->
+<div class="toolbar" style="display:flex; align-items:center; gap:12px;">
+  <a href="./indicators.html"
+     style="display:inline-block; padding:6px 12px; border-radius:999px;
+            border:1px solid var(--border); text-decoration:none; color:var(--fg);">
+    指標實驗室
+  </a>
+</div>
 
-    <section class="card" style="margin-top:12px">
-      <h3>模型重要度</h3>
-      <div id="impChart" style="height:260px"></div>
-    </section>
+<!-- 按鈕與第一個表格之間的水平分隔線 -->
+<hr style="border:none; border-top:1px solid var(--border); margin:8px 0 12px 0;" />
 
-    <section class="card" style="margin-top:12px">
-      <h3>最近 N 次預測回測 / 混淆矩陣</h3>
-      <div id="cmChart" style="height:260px"></div>
-    </section>
-  </div>
+<!-- 右上角的 API/主題/刷新（保持一行字樣） -->
+<div class="nav" style="display:flex; gap:12px; align-items:center; justify-content:flex-end; margin-bottom:8px;">
+  <label class="mono" style="white-space:nowrap;">
+    API：<input id="apiBase" class="mono" placeholder="（留空=內建範例）"
+               style="width:280px; padding:6px; border-radius:8px; border:1px solid var(--border);
+                      background:transparent; color:var(--fg);" />
+  </label>
+  <span id="themeToggle" style="cursor:pointer;">切換主題</span>
+  <span id="refreshBtn" style="cursor:pointer;">重新整理</span>
+  <a href="./index.html" style="text-decoration:none; color:var(--fg);">主頁</a>
+</div>
 
   <script src="./app.js"></script>
 </body>
