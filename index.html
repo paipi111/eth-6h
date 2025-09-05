@@ -3,19 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>乙太幣 6h 預測｜專題展示（公開版）</title>
+  <title>Crypto 1d K線與模型資訊（公開版）</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <style>
     :root {
       --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb;
-      /* tooltip：白主題 → 白底黑字 */
       --tooltip-bg: rgba(255,255,255,.95);
       --tooltip-fg: #0f172a;
     }
     [data-theme="dark"] {
       --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa;
-      /* tooltip：黑主題 → 黑底白字 */
       --tooltip-bg: rgba(30,41,59,.92);
       --tooltip-fg: #e5e7eb;
     }
@@ -37,163 +35,108 @@
     table.metrics { width:100%; border-collapse: collapse; }
     table.metrics th, table.metrics td { padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,.25); text-align:left; }
 
-    /* 快速跳轉在抬頭內 + 使用變數預留 sticky header 高度 */
-    .quicknav { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    /* 導覽分頁 */
+    .tabbar { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    .tabbar .btn.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.15) inset; }
+
+    /* 區塊隱藏/顯示 */
+    .page { display:none; }
+    .page.show { display:block; }
+
+    /* 錨點位移（維持） */
     .section-anchor { scroll-margin-top: calc(var(--header-height, 0px) + 12px); }
   </style>
 </head>
 <body data-theme="light">
   <div class="container">
 
-    <!-- Sticky Header：左邊標題 + 快速跳轉；右邊 API / 主題切換 -->
+    <!-- Sticky Header -->
     <div class="header" id="topHeader">
       <div>
-        <div class="title">乙太幣 6h 預測 · 專題展示（公開版）</div>
-        <div class="muted">此頁可獨立部署（含範例資料）。有線上 API 時，右上角改 API / Supabase 即可。</div>
-        <div class="quicknav">
-          <a class="btn" onclick="document.getElementById('sec-basis').scrollIntoView({behavior:'smooth',block:'start'})">BASIS_O/C</a>
-          <a class="btn" onclick="document.getElementById('sec-basischg').scrollIntoView({behavior:'smooth',block:'start'})">BASIS 變化率</a>
-          <a class="btn" onclick="document.getElementById('sec-whale').scrollIntoView({behavior:'smooth',block:'start'})">WHALE</a>
-          <a class="btn" onclick="document.getElementById('sec-cbprem').scrollIntoView({behavior:'smooth',block:'start'})">CB_PREM%</a>
-          <a class="btn" onclick="document.getElementById('sec-returns').scrollIntoView({behavior:'smooth',block:'start'})">R6%/R24%</a>
-          <a class="btn" onclick="document.getElementById('sec-logrets').scrollIntoView({behavior:'smooth',block:'start'})">LR6/LR24</a>
-          <a class="btn" onclick="document.getElementById('sec-atr').scrollIntoView({behavior:'smooth',block:'start'})">ATR14</a>
-          <a class="btn" onclick="document.getElementById('sec-ema').scrollIntoView({behavior:'smooth',block:'start'})">EMA</a>
-          <a class="btn" onclick="document.getElementById('sec-rsi').scrollIntoView({behavior:'smooth',block:'start'})">RSI</a>
-          <a class="btn" onclick="document.getElementById('sec-macd').scrollIntoView({behavior:'smooth',block:'start'})">MACD</a>
-          <a class="btn" onclick="document.getElementById('sec-kd').scrollIntoView({behavior:'smooth',block:'start'})">KD</a>
-          <a class="btn" onclick="document.getElementById('sec-boll').scrollIntoView({behavior:'smooth',block:'start'})">Boll/BBW</a>
+        <div class="title">Crypto 1d K線與模型資訊（公開版）</div>
+        <div class="muted">右上角可設定 API Base。首頁為模型資訊；各分頁顯示 1d K 線。</div>
+
+        <!-- 分頁列 -->
+        <div class="tabbar" id="tabbar">
+          <a class="btn" data-tab="home">Home</a>
+          <a class="btn" data-tab="BTC">BTC</a>
+          <a class="btn" data-tab="ETH">ETH</a>
+          <a class="btn" data-tab="XRP">XRP</a>
+          <a class="btn" data-tab="DOGE">DOGE</a>
+          <a class="btn" data-tab="BNB">BNB</a>
+          <a class="btn" data-tab="SOL">SOL</a>
+          <a class="btn" data-tab="ADA">ADA</a>
         </div>
       </div>
       <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
         <div class="muted mono">API:
-          <input id="apiBase" class="mono" style="width:280px; padding:6px; border-radius:8px; border:1px solid rgba(148,163,184,.35); background:transparent; color:var(--fg);" value="" placeholder="（留空=用內建範例）" />
+          <input id="apiBase" class="mono" style="width:280px; padding:6px; border-radius:8px; border:1px solid rgba(148,163,184,.35); background:transparent; color:var(--fg);" placeholder="（留空=用內建範例）" />
         </div>
         <button id="themeToggle" class="btn">切換：<span id="themeLabel">白</span> / 黑</button>
       </div>
     </div>
 
-    <!-- 價格與預測 -->
-    <div class="row" style="margin-top:12px;">
-      <div class="card" style="flex:2;">
-        <div class="header" style="margin-bottom:8px; position:static;">
-          <div class="title">價格與預測</div>
+    <!-- Home（= 模型資訊頁，沿用你原本區塊） -->
+    <div id="page-home" class="page show">
+      <div class="row" style="margin-top:12px;">
+        <div class="card" style="flex:2;">
+          <div class="header" style="margin-bottom:8px; position:static;">
+            <div class="title">價格與預測（示例）</div>
+          </div>
+          <div id="chart" style="height:420px;"></div>
         </div>
-        <div id="chart" style="height:420px;"></div>
-      </div>
-      <div class="card" style="flex:1;">
-        <div class="grid2">
-          <div><div class="muted">方向</div><div id="dir" style="font-size:28px; font-weight:800;">—</div></div>
-          <div><div class="muted">預估漲跌幅</div><div id="delta" style="font-size:28px; font-weight:800;">—</div></div>
-          <div><div class="muted">信心度</div><div id="conf" style="font-size:24px; font-weight:700;">—</div></div>
-          <div><div class="muted">區間 (±)</div><div id="band" style="font-size:24px; font-weight:700;">—</div></div>
+        <div class="card" style="flex:1;">
+          <div class="grid2">
+            <div><div class="muted">方向</div><div id="dir" style="font-size:28px; font-weight:800;">—</div></div>
+            <div><div class="muted">預估漲跌幅</div><div id="delta" style="font-size:28px; font-weight:800;">—</div></div>
+            <div><div class="muted">信心度</div><div id="conf" style="font-size:24px; font-weight:700;">—</div></div>
+            <div><div class="muted">區間 (±)</div><div id="band" style="font-size:24px; font-weight:700;">—</div></div>
+          </div>
+          <div class="muted" style="margin-top:12px;">最新預測時間：<span id="predTs" class="mono">—</span></div>
+          <div style="margin-top:12px;">
+            <a id="tgButton" class="btn" href="https://t.me/eth6h_predict_bot" target="_blank">到 Telegram 訂閱預測</a>
+          </div>
         </div>
-        <div class="muted" style="margin-top:12px;">最新預測時間：<span id="predTs" class="mono">—</span></div>
-        <div style="margin-top:12px;">
-          <a id="tgButton" class="btn" href="https://t.me/eth6h_predict_bot" target="_blank">到 Telegram 訂閱預測</a>
+      </div>
+
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div class="title">模型重要度</div>
+          <div id="impChart" style="height:300px;"></div>
+        </div>
+        <div class="card" style="flex:1;">
+          <div class="title">最新指標</div>
+          <div class="grid3" id="featGrid"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card">
+          <div class="title">模型資訊</div>
+          <div id="modelInfo" class="mono" style="white-space:pre-wrap; margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div class="title">最近 N 次預測回測</div>
+          <div class="muted">資料來源：/data/backtest_sample.json（或你的 API） · N 由資料長度決定</div>
+          <div id="cmChart" style="height:320px; margin-top:8px;"></div>
+        </div>
+        <div class="card" style="flex:1;">
+          <div class="title">回測指標</div>
+          <table class="metrics" id="btMetrics"></table>
         </div>
       </div>
     </div>
 
-    <!-- 自製指標（圖一） -->
-    <div class="row">
-      <div class="card section-anchor" id="sec-basis" style="flex:1;">
-        <div class="title">開/收盤期貨基差 (年化)</div>
-        <div id="chart-basis" style="height:300px;"></div>
-      </div>
-      <div class="card section-anchor" id="sec-basischg" style="flex:1;">
-        <div class="title">基差變化率</div>
-        <div id="chart-basischg" style="height:300px;"></div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="card section-anchor" id="sec-whale" style="flex:1;">
-        <div class="title">巨鯨指數 (WHALE)</div>
-        <div id="chart-whale" style="height:280px;"></div>
-      </div>
-      <div class="card section-anchor" id="sec-cbprem" style="flex:1;">
-        <div class="title">Coinbase 溢價率 (CB_PREM%)</div>
-        <div id="chart-cbprem" style="height:280px;"></div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="card section-anchor" id="sec-returns" style="flex:1;">
-        <div class="title">6h / 24h 報酬率</div>
-        <div id="chart-returns" style="height:260px;"></div>
-      </div>
-      <div class="card section-anchor" id="sec-logrets" style="flex:1;">
-        <div class="title">6h / 24h 對數報酬</div>
-        <div id="chart-logrets" style="height:260px;"></div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="card section-anchor" id="sec-atr" style="flex:1;">
-        <div class="title">ATR14 (6h 粒度)</div>
-        <div id="chart-atr" style="height:260px;"></div>
-      </div>
-    </div>
-
-    <!-- 前端畫圖指標（圖二） -->
-    <div class="row">
-      <div class="card section-anchor" id="sec-ema" style="flex:1;">
-        <div class="title">EMA(6/24/56)</div>
-        <div id="chart-ema" style="height:260px;"></div>
-      </div>
-      <div class="card section-anchor" id="sec-rsi" style="flex:1;">
-        <div class="title">RSI(14)</div>
-        <div id="chart-rsi" style="height:260px;"></div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="card section-anchor" id="sec-macd" style="flex:1;">
-        <div class="title">MACD(12,26,9)</div>
-        <div id="chart-macd" style="height:280px;"></div>
-      </div>
-      <div class="card section-anchor" id="sec-kd" style="flex:1;">
-        <div class="title">KD(9,3,3)</div>
-        <div id="chart-kd" style="height:280px;"></div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="card section-anchor" id="sec-boll" style="flex:1;">
-        <div class="title">Bollinger(20,2) / BBW(20,2)</div>
-        <div id="chart-boll" style="height:300px;"></div>
-      </div>
-    </div>
-
-    <!-- 模型重要度 / 最新指標 / 模型資訊 / 回測 -->
-    <div class="row">
-      <div class="card" style="flex:1;">
-        <div class="title">模型重要度</div>
-        <div id="impChart" style="height:300px;"></div>
-      </div>
-      <div class="card" style="flex:1;">
-        <div class="title">最新指標</div>
-        <div class="grid3" id="featGrid"></div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="card">
-        <div class="title">模型資訊</div>
-        <div id="modelInfo" class="mono" style="white-space:pre-wrap; margin-top:8px;"></div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="card" style="flex:1;">
-        <div class="title">最近 N 次預測回測</div>
-        <div class="muted">資料來源：/data/backtest_sample.json（或你的 API） · N 可由資料長度決定</div>
-        <div id="cmChart" style="height:320px; margin-top:8px;"></div>
-      </div>
-      <div class="card" style="flex:1;">
-        <div class="title">回測指標</div>
-        <table class="metrics" id="btMetrics"></table>
+    <!-- 幣別頁（單一容器，依分頁切換渲染） -->
+    <div id="page-coin" class="page">
+      <div class="row" style="margin-top:12px;">
+        <div class="card" style="flex:1;">
+          <div class="title"><span id="coinTitle">—</span> · 1d K 線</div>
+          <div id="coinChart" style="height:520px;"></div>
+        </div>
       </div>
     </div>
 
