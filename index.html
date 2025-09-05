@@ -1,169 +1,139 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="zh-Hant" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>乙太幣 6h 預測｜專題展示（公開版）</title>
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <title>BTC/ETH 6h 指標展示</title>
+
+  <!-- ECharts -->
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <style>
-    :root { --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; }
-    [data-theme="dark"] { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; }
-
-    /* 防白邊（保留你原本的視覺） */
-    html, body {
-      margin: 0 !important; padding: 0 !important;
-      width:100%; height:100%; min-height:100%;
-      background: var(--bg) !important; color: var(--fg);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial;
-      overscroll-behavior: none; background-attachment: fixed;
+    :root { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; }
+    [data-theme="light"] { --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; }
+    html, body { margin:0; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 16px 16px 64px; }
+    /* START: toolbar */
+    .toolbar {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      padding: 10px 12px; background: linear-gradient(180deg, rgba(15,23,42,0.96), rgba(15,23,42,0.70));
+      backdrop-filter: blur(6px); border-bottom: 1px solid rgba(148,163,184,0.2);
     }
-    * { box-sizing: border-box; }
-    ::-webkit-scrollbar{ width:12px; background:var(--bg) }
-    ::-webkit-scrollbar-track{ background:var(--bg) }
-    ::-webkit-scrollbar-thumb{ background:rgba(148,163,184,.35); border-radius:8px; border:3px solid var(--bg) }
-
-    .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
-    .row { display:flex; gap:16px; flex-wrap:wrap; }
-    .card { background: var(--card); border: 1px solid rgba(148,163,184,.2); border-radius: 16px; padding: 16px; flex:1; min-width: 280px; }
-    .header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-    .title { font-size: 20px; font-weight: 700; }
-    .muted { color: var(--muted); }
-    .btn { border:1px solid rgba(148,163,184,.4); background:transparent; color:var(--fg); padding:8px 12px; border-radius: 12px; cursor:pointer; }
-    .btn.primary { border-color: var(--accent); }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace; }
-    .grid2 { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:12px; }
-    .grid3 { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:12px; }
-    .footer { text-align:center; font-size:12px; margin: 24px auto; color:var(--muted); }
-    table.metrics { width:100%; border-collapse: collapse; }
-    table.metrics th, table.metrics td { padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,.25); text-align:left; }
-
-    /* 分頁 */
-    .tabs { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
-    .tab { appearance:none; border:none; background:transparent; color:var(--fg); padding:8px 6px; font-weight:700; cursor:pointer; opacity:.75; border-bottom:2px solid transparent; }
-    .tab:hover { opacity:1; }
-    .tab.active { opacity:1; border-bottom-color: var(--accent); }
-    .hr { height:1px; background:rgba(148,163,184,.25); margin:10px 0 16px; }
-    .page { display:none; }
-    .page.active { display:block; }
+    .toolbar .btn {
+      border: none; background: transparent; color: var(--fg);
+      padding: 6px 8px; cursor: pointer; border-radius: 8px; font-size: 14px;
+    }
+    .toolbar .btn:hover { background: rgba(96,165,250,0.12); }
+    .spacer { flex: 1; }
+    .theme-toggle { font-size: 13px; color: var(--muted); }
+    /* END: toolbar */
+    h2 { margin: 24px 0 8px; font-size: 18px; color: var(--fg); }
+    .card { background: var(--card); border:1px solid rgba(148,163,184,0.18); border-radius: 12px; padding: 12px; }
+    .chart { width: 100%; height: 360px; }
+    .muted { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .divider { height: 1px; background: rgba(148,163,184,0.18); margin: 16px 0; }
   </style>
 </head>
-<body data-theme="light">
+
+<body>
+  <!-- START: toolbar -->
+  <div class="toolbar">
+    <button class="btn" data-target="#overview">Overview</button>
+    <div class="divider" style="width:1px;height:22px;background:rgba(148,163,184,0.28)"></div>
+    <button class="btn" data-target="#basis">BASIS_O / BASIS_C</button>
+    <button class="btn" data-target="#basischg">BASIS_O_CHG% / BASIS_C_CHG%</button>
+    <button class="btn" data-target="#whale">WHALE</button>
+    <button class="btn" data-target="#cbprem">CB_PREM%</button>
+    <button class="btn" data-target="#returns">R6% / R24%</button>
+    <button class="btn" data-target="#logrets">LR6 / LR24</button>
+    <button class="btn" data-target="#atr">ATR14</button>
+    <div class="divider" style="width:1px;height:22px;background:rgba(148,163,184,0.28)"></div>
+    <button class="btn" data-target="#ema">EMA(6/24/56)</button>
+    <button class="btn" data-target="#rsi">RSI(14)</button>
+    <button class="btn" data-target="#macd">MACD(12,26,9)</button>
+    <button class="btn" data-target="#kd">KD(9,3,3)</button>
+    <button class="btn" data-target="#boll">Boll(20,2) / BBW</button>
+    <div class="spacer"></div>
+    <button id="themeBtn" class="btn theme-toggle">切換主題</button>
+  </div>
+  <!-- END: toolbar -->
+
   <div class="container">
-    <div class="header">
-      <div>
-        <div class="title">乙太幣 6h 預測 · 專題展示（公開版）</div>
-        <div class="muted">此頁可獨立部署（含範例資料）。有線上 API 時，右上角改 API Base 即可。</div>
-      </div>
-      <div style="display:flex; gap:8px;">
-        <div class="muted mono">API: <input id="apiBase" class="mono" style="width:280px; padding:6px; border-radius:8px; border:1px solid rgba(148,163,184,.35); background:transparent; color:var(--fg);" value="" placeholder="（留空=用內建範例）" /></div>
-        <button id="themeToggle" class="btn">切換：<span id="themeLabel">白</span> / 黑</button>
-        <button id="refreshBtn" class="btn primary">重新整理</button>
-      </div>
-    </div>
-
-    <!-- Tabs -->
-    <div class="tabs">
-      <button class="tab active" data-tab="price">價格預測</button>
-      <button class="tab" data-tab="tech">技術指標</button>
-      <button class="tab" data-tab="custom">自製指標</button>
-      <button class="tab" data-tab="imp">模型重要度</button>
-      <button class="tab" data-tab="feat">最新指標</button>
-      <button class="tab" data-tab="model">模型資訊</button>
-      <button class="tab" data-tab="bt">回測</button>
-    </div>
-    <div class="hr"></div>
-
-    <!-- 價格預測 -->
-    <section id="page-price" class="page active">
-      <div class="row">
-        <div class="card" style="flex:2;">
-          <div class="header" style="margin-bottom:8px;">
-            <div class="title">價格與預測</div>
-          </div>
-          <div id="chart" style="height:420px;"></div>
-        </div>
-        <div class="card" style="flex:1;">
-          <div class="grid2">
-            <div><div class="muted">方向</div><div id="dir" style="font-size:28px; font-weight:800;">—</div></div>
-            <div><div class="muted">預估漲跌幅</div><div id="delta" style="font-size:28px; font-weight:800;">—</div></div>
-            <div><div class="muted">信心度</div><div id="conf" style="font-size:24px; font-weight:700;">—</div></div>
-            <div><div class="muted">區間 (±)</div><div id="band" style="font-size:24px; font-weight:700;">—</div></div>
-          </div>
-          <div class="muted" style="margin-top:12px;">最新預測時間：<span id="predTs" class="mono">—</span></div>
-          <div style="margin-top:12px;">
-            <a id="tgButton" class="btn" href="https://t.me/eth6h_predict_bot" target="_blank">到 Telegram 訂閱預測</a>
-          </div>
-        </div>
-      </div>
+    <!-- 你原本的主圖/價格圖可放在 overview 這裡；我不變動，只追加下方區塊 -->
+    <section id="overview">
+      <h2>總覽 / 主圖</h2>
+      <div id="chart-overview" class="card chart"></div>
+      <div class="muted">※ 若你已有主圖，保留你的版本即可；此處提供掛載點。</div>
     </section>
 
-    <!-- 技術指標 -->
-    <section id="page-tech" class="page">
-      <div class="row">
-        <div class="card"><div class="title">EMA(6/24/56)</div><div id="emaChart" style="height:300px;"></div></div>
-        <div class="card"><div class="title">RSI(14)</div><div id="rsiChart" style="height:300px;"></div></div>
-      </div>
-      <div class="row">
-        <div class="card"><div class="title">MACD(12,26,9)</div><div id="macdChart" style="height:300px;"></div></div>
-        <div class="card"><div class="title">KDJ(9,3,3)</div><div id="kdjChart" style="height:300px;"></div></div>
-      </div>
-      <div class="row">
-        <div class="card"><div class="title">Bollinger(20,2) / BBW</div><div id="bbChart" style="height:300px;"></div></div>
-        <div class="card"><div class="title">ATR(14)</div><div id="atrChart" style="height:300px;"></div></div>
-      </div>
+    <div class="divider"></div>
+
+    <!-- START: charts -->
+    <section id="basis">
+      <h2>開/收盤期貨基差 (年化)</h2>
+      <div id="chart-basis" class="card chart"></div>
     </section>
 
-    <!-- 自製指標（以 feature 命名對應） -->
-    <section id="page-custom" class="page">
-      <div class="card">
-        <div class="title">自製指標（左＝表格名／右＝取名）</div>
-        <div class="grid3" id="customGrid"></div>
-      </div>
+    <section id="basischg">
+      <h2>基差變化率</h2>
+      <div id="chart-basischg" class="card chart"></div>
     </section>
 
-    <!-- 模型重要度 -->
-    <section id="page-imp" class="page">
-      <div class="card">
-        <div class="title">模型重要度</div>
-        <div id="impChart" style="height:300px;"></div>
-      </div>
+    <section id="whale">
+      <h2>巨鯨指數 (WHALE)</h2>
+      <div id="chart-whale" class="card chart"></div>
     </section>
 
-    <!-- 最新指標 -->
-    <section id="page-feat" class="page">
-      <div class="card">
-        <div class="title">最新指標</div>
-        <div class="grid3" id="featGrid"></div>
-      </div>
+    <section id="cbprem">
+      <h2>Coinbase 溢價率 (CB_PREM%)</h2>
+      <div id="chart-cbprem" class="card chart"></div>
     </section>
 
-    <!-- 模型資訊 -->
-    <section id="page-model" class="page">
-      <div class="card">
-        <div class="title">模型資訊</div>
-        <div id="modelInfo" class="mono" style="white-space:pre-wrap; margin-top:8px;"></div>
-      </div>
+    <section id="returns">
+      <h2>6h / 24h 報酬率 (R6%, R24%)</h2>
+      <div id="chart-returns" class="card chart"></div>
     </section>
 
-    <!-- 回測 -->
-    <section id="page-bt" class="page">
-      <div class="row">
-        <div class="card" style="flex:1;">
-          <div class="title">最近 N 次預測回測</div>
-          <div class="muted">資料來源：/data/backtest_sample.json（或你的 API） · N 可由資料長度決定</div>
-          <div id="cmChart" style="height:320px; margin-top:8px;"></div>
-        </div>
-        <div class="card" style="flex:1;">
-          <div class="title">回測指標</div>
-          <table class="metrics" id="btMetrics"></table>
-        </div>
-      </div>
+    <section id="logrets">
+      <h2>6h / 24h 對數報酬 (LR6, LR24)</h2>
+      <div id="chart-logrets" class="card chart"></div>
     </section>
 
-    <div class="footer">
-      Demo 使用 <a href="https://echarts.apache.org" target="_blank">Apache ECharts</a>。URL 支援參數：<span class="mono">?theme=dark&bot=USERNAME</span>。
-    </div>
+    <section id="atr">
+      <h2>ATR14 (6h 粒度)</h2>
+      <div id="chart-atr" class="card chart"></div>
+    </section>
+
+    <div class="divider"></div>
+
+    <section id="ema">
+      <h2>EMA(6/24/56)</h2>
+      <div id="chart-ema" class="card chart"></div>
+    </section>
+
+    <section id="rsi">
+      <h2>RSI(14)</h2>
+      <div id="chart-rsi" class="card chart"></div>
+    </section>
+
+    <section id="macd">
+      <h2>MACD(12,26,9)</h2>
+      <div id="chart-macd" class="card chart"></div>
+    </section>
+
+    <section id="kd">
+      <h2>KD(9,3,3)</h2>
+      <div id="chart-kd" class="card chart"></div>
+    </section>
+
+    <section id="boll">
+      <h2>Bollinger(20,2) / BBW(20,2)</h2>
+      <div id="chart-boll" class="card chart"></div>
+    </section>
+    <!-- END: charts -->
   </div>
 
   <script src="./app.js"></script>
