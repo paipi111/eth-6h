@@ -1,6 +1,6 @@
 // ====== 基本設定（把 Supabase 寫在程式裡；只放 anon key！） ======
-const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";        // ← 換你的
-const SUPABASE_KEY = "YOUR_ANON_KEY";                            // ← 換你的 anon key
+const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";        // ← 換你的
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU";                            // ← 換你的 anon key
 const PRICES_TABLE  = "prices_daily";                            // 你提供的每日資料表
 // 指標（圖一）若你的後端也有就改這些名稱；否則本程式會以前端計算的對應值來畫
 const INDICATORS_TABLE = null; // 例如 "indicators_daily"；若為 null 就前端計算
