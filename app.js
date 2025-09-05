@@ -1,269 +1,394 @@
-// === Supabase 設定（請只放 anon key） ===
-// ⚠️ 前端放的是「anon key」。不要放 service_role 或 sb_secret。
-const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";   // ← 換成你的 Supabase 專案 URL
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU";                      // ← 換成你的 anon key（只讀）
+// ====== 基本設定（把 Supabase 寫在程式裡；只放 anon key！） ======
+const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";        // ← 換你的
+const SUPABASE_KEY = "YOUR_ANON_KEY";                            // ← 換你的 anon key
+const PRICES_TABLE  = "prices_daily";                            // 你提供的每日資料表
+// 指標（圖一）若你的後端也有就改這些名稱；否則本程式會以前端計算的對應值來畫
+const INDICATORS_TABLE = null; // 例如 "indicators_daily"；若為 null 就前端計算
 
-// 指標資料表與欄位
-const IND_TABLE = "lake";  // ← 你的實際表/檢視名稱
-const IND_FIELDS = [
-  "ts",
-  "open_basis","close_basis","open_change","close_change",
-  "whale_index_value","premium_rate",
-  "ret_6h","ret_24h","log_ret_6h","log_ret_24h","atr14",
-  "ema6","ema24","ema56",
-  "rsi14",
-  "macd_dif","macd_dea","macd_hist",
-  "k","d","j",
-  "bb_upper","bb_middle","bb_lower","bbw"
-];
+// ====== 共用 ======
+const $ = (s)=>document.querySelector(s);
+const COINS = ["HOME","BTC","ETH","XRP","DOGE","BNB","ADA"]; // 沒有 SOL
+const state = {
+  theme: "light",
+  charts: {},
+  route: "HOME",
+  ohlc: [],          // 當前幣種 1d 價格
+  ind: {},           // 當前幣種的各指標（前端算）
+  sample: null       // 假資料快取
+};
 
-const $ = (sel) => document.querySelector(sel);
-const params = new URLSearchParams(window.location.search);
-const state = { history:null, predict:null, backtest:null, charts:{}, ind:null };
-
-// ==== 色彩與工具 ====
-const getVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim() || "#e5e7eb";
-function themeColors(){ return { fg:getVar('--fg'), muted:getVar('--muted'), accent:getVar('--accent'), grid:'rgba(148,163,184,.2)'}; }
-function getApiBase(){ const v=$("#apiBase")?$("#apiBase").value.trim():""; return v||""; }
-function fmtPct(x){ return (x>0?"+":"") + x.toFixed(2) + "%"; }
-function fmtTs(ts){ try{ return new Date(ts).toLocaleString(); }catch{ return ts; } }
-async function fetchJson(url){ const r=await fetch(url); if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); }
-function isDark(){ return document.body.getAttribute('data-theme')==='dark'; }
-function tipStyle(trigger='axis'){ return {
-  trigger,
-  textStyle:{ color:isDark()?'#e5e7eb':'#0f172a' },
-  backgroundColor:isDark()? 'rgba(30,41,59,.92)' : 'rgba(255,255,255,.95)',
-  borderColor:isDark()? 'rgba(148,163,184,.25)' : 'rgba(0,0,0,.12)',
-  axisPointer:{ type:'line' }
-};}
-
-// ==== 主資料（歷史 / 預測 / 回測） ====
-async function loadData(){
-  const base=getApiBase();
-  if(base){
-    const [hist,pred,back]=await Promise.all([
-      fetchJson(base + "/api/history?symbol=ETHUSDT&interval=6h&limit=200"),
-      fetchJson(base + "/api/predict?symbol=ETHUSDT&horizon=6h"),
-      fetchJson(base + "/api/backtest?symbol=ETHUSDT&horizon=6h&limit=200")
-    ]);
-    state.history=hist; state.predict=pred; state.backtest=back;
-  }else{
-    const [hist,pred,back]=await Promise.all([
-      fetchJson("./data/history_6h_sample.json"),
-      fetchJson("./data/predict_sample.json"),
-      fetchJson("./data/backtest_sample.json")
-    ]);
-    state.history=hist; state.predict=pred; state.backtest=back;
-  }
-}
-
-// ==== 指標資料（Supabase REST） ====
-function toLogFromPct(pct){ const r=Number(pct)/100; if(!isFinite(r)||r<=-0.999999999) return NaN; return Math.log(1+r); }
-function transformIndicators(rows){
-  if(!Array.isArray(rows)) return [];
-  return rows.map(r=>{
-    const o={...r};
-    if(o.log_ret_6h==null && o.ret_6h!=null)  o.log_ret_6h  = toLogFromPct(o.ret_6h);
-    if(o.log_ret_24h==null && o.ret_24h!=null) o.log_ret_24h = toLogFromPct(o.ret_24h);
-    return o;
+// 建 tabs
+function buildTabs(){
+  const el = $("#tabs"); el.innerHTML = "";
+  COINS.forEach(c=>{
+    const a = document.createElement("a");
+    a.className = "tab" + (state.route===c?" active":"");
+    a.textContent = c==="HOME"?"Home":c;
+    a.href = "#"+c.toLowerCase();
+    el.appendChild(a);
   });
 }
+function isDark(){ return document.body.getAttribute('data-theme')==='dark'; }
+function themeColors(){
+  const cs = getComputedStyle(document.body);
+  return {
+    fg: cs.getPropertyValue('--fg').trim(),
+    muted: cs.getPropertyValue('--muted').trim(),
+    accent: cs.getPropertyValue('--accent').trim(),
+    grid: 'rgba(148,163,184,.2)'
+  };
+}
+function tipStyle(trigger='axis'){
+  return {
+    trigger,
+    textStyle:{ color: isDark() ? '#e5e7eb' : '#0f172a' },
+    backgroundColor: isDark() ? 'rgba(30,41,59,.92)' : 'rgba(255,255,255,.95)',
+    borderColor: isDark() ? 'rgba(148,163,184,.25)' : 'rgba(0,0,0,.12)',
+    axisPointer:{ type:'line' }
+  };
+}
 
-async function loadIndicators(){
+// ====== 路由 ======
+function currentRoute(){
+  const h = (location.hash || "#home").replace("#","").toUpperCase();
+  return COINS.includes(h) ? h : "HOME";
+}
+window.addEventListener('hashchange', main);
+
+// ====== 讀資料：Supabase（或 sample） ======
+async function fetchJSON(url, opts){ const r=await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+async function fetchPricesFromSB(coin){
+  if(!SUPABASE_URL || !SUPABASE_KEY) return null;
+  const base = SUPABASE_URL.replace(/\/$/,'');
+  const q = `select=ts_utc,open,high,low,close,volume&coin=eq.${coin}&order=ts_utc.asc`;
+  const url = `${base}/rest/v1/${PRICES_TABLE}?${q}`;
   try{
-    if(SUPABASE_URL && SUPABASE_KEY){
-      const endpoint = `${SUPABASE_URL.replace(/\/$/,"")}/rest/v1/${IND_TABLE}`
-        + `?select=${encodeURIComponent(IND_FIELDS.join(","))}&order=ts.asc&limit=1500`;
-      const r = await fetch(endpoint, { headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}` } });
-      if(r.ok){
-        const raw = await r.json();
-        if(Array.isArray(raw) && raw.length){
-          state.ind = transformIndicators(raw);
-          console.log("Supabase 指標資料筆數:", raw.length);
-          return;
-        }
-      }else{
-        console.warn("Supabase 請求失敗:", r.status, await r.text());
-      }
-    }
-  }catch(e){ console.warn("Supabase 指標抓取錯誤:", e); }
-
-  // fallback：用本地 sample
-  const local = await fetch("./data/history_6h_sample.json").then(r=>r.json());
-  state.ind = transformIndicators(local.data || []);
+    const rows = await fetchJSON(url, { headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}` } });
+    return rows.map(r=>({
+      t: new Date(Number(r.ts_utc)).toISOString().slice(0,10),
+      o: +r.open, h: +r.high, l:+r.low, c:+r.close, v:+r.volume
+    }));
+  }catch(e){ console.warn("SB 價格取用失敗：",e); return null; }
 }
 
-// ==== 圖表初始化 ====
-function ensureCharts(){
-  if(!state.charts.price){ state.charts.price = echarts.init(document.getElementById('chart')); window.addEventListener('resize',()=>state.charts.price.resize()); }
-  if(!state.charts.imp){   state.charts.imp   = echarts.init(document.getElementById('impChart')); window.addEventListener('resize',()=>state.charts.imp.resize()); }
-  if(!state.charts.cm){    state.charts.cm    = echarts.init(document.getElementById('cmChart')); window.addEventListener('resize',()=>state.charts.cm.resize()); }
+async function loadSample(){
+  if(state.sample) return state.sample;
+  state.sample = await fetchJSON("./data/daily_sample.json");
+  return state.sample;
+}
+async function getOHLC(coin){
+  // 1) 先試 Supabase
+  const sb = await fetchPricesFromSB(coin);
+  if (Array.isArray(sb) && sb.length) return sb;
+  // 2) fallback：sample
+  const sample = await loadSample();
+  return (sample[coin] || []).map(r=>({t:r.t, o:r.o, h:r.h, l:r.l, c:r.c, v:r.v}));
 }
 
-// ==== 價格與預測 ====
-function renderPriceAndPredict(){
-  const hist=state.history?.data||[];
-  const pred=state.predict||null;
-  const categories=hist.map(d=>d.t);
-  const kdata=hist.map(d=>[d.o,d.c,d.l,d.h]);
-  let markLine=[], markArea=[];
-  if(pred && hist.length){
-    const nextTs=pred.timestamp;
-    const lastClose=hist[hist.length-1].c;
-    const low= lastClose*(1+pred.conf_interval_pct[0]/100.0);
-    const high=lastClose*(1+pred.conf_interval_pct[1]/100.0);
-    markArea=[ [ { xAxis: nextTs, itemStyle:{color:'rgba(37,99,235,0.08)'} }, { xAxis: nextTs } ] ];
-    markLine=[
-      { name:'預測價格', xAxis: nextTs, yAxis: pred.y_pred },
-      { name:'區間低', xAxis: nextTs, yAxis: low },
-      { name:'區間高', xAxis: nextTs, yAxis: high },
-    ];
+// ====== 指標計算（前端） ======
+function ema(arr, n){
+  const k = 2/(n+1); const out=[]; let prev = null;
+  for(let i=0;i<arr.length;i++){
+    const v = arr[i];
+    prev = (prev===null)? v : (v*k + prev*(1-k));
+    out.push(prev);
   }
-  const C=themeColors();
-  state.charts.price.setOption({
-    backgroundColor:'transparent', animation:true, textStyle:{ color:C.fg },
+  return out;
+}
+function sma(arr, n){
+  const out=[], q=[]; let s=0;
+  for(let i=0;i<arr.length;i++){
+    q.push(arr[i]); s+=arr[i];
+    if(q.length>n) s-=q.shift();
+    out.push(q.length===n? s/n : NaN);
+  }
+  return out;
+}
+function rsi(arr, n=14){
+  const out=[]; let gain=0, loss=0;
+  for(let i=1;i<arr.length;i++){
+    const ch = arr[i]-arr[i-1];
+    const up = ch>0? ch:0, dn = ch<0? -ch:0;
+    if(i<=n){ gain+=up; loss+=dn; out.push(NaN); continue; }
+    if(i===n+1){ const rs=(gain/n)/((loss/n)||1e-9); out.push(100-100/(1+rs)); }
+    else { gain=(gain*(n-1)+up)/n; loss=(loss*(n-1)+dn)/n; const rs=gain/(loss||1e-9); out.push(100-100/(1+rs)); }
+  }
+  out.unshift(NaN);
+  return out;
+}
+function macd(arr, fast=12, slow=26, sig=9){
+  const ef=ema(arr,fast), es=ema(arr,slow);
+  const dif = ef.map((v,i)=> v - es[i]);
+  const dea = ema(dif.map(v=>isFinite(v)?v:0), sig);
+  const hist = dif.map((v,i)=> v - dea[i]);
+  return { dif, dea, hist };
+}
+function kd(high, low, close, n=9, kN=3, dN=3){
+  const RSV=[], K=[], D=[]; let k=50, d=50;
+  for(let i=0;i<close.length;i++){
+    const s = Math.max(0,i-n+1), hh = Math.max(...high.slice(s,i+1)), ll = Math.min(...low.slice(s,i+1));
+    const r = (hh===ll)? 50 : ((close[i]-ll)/(hh-ll))*100;
+    k = (2*k + r)/3; d = (2*d + k)/3;
+    RSV.push(r); K.push(k); D.push(d);
+  }
+  const J = K.map((v,i)=> 3*v - 2*D[i]);
+  return {K,D,J};
+}
+function boll(close, n=20, k=2){
+  const ma = sma(close, n);
+  const sd = [];
+  for(let i=0;i<close.length;i++){
+    if(i<n-1){ sd.push(NaN); continue; }
+    const s = close.slice(i-n+1,i+1);
+    const m = ma[i]; const v = s.reduce((a,x)=>a+(x-m)*(x-m),0)/n;
+    sd.push(Math.sqrt(v));
+  }
+  const upper = ma.map((m,i)=> m + (sd[i]*k));
+  const lower = ma.map((m,i)=> m - (sd[i]*k));
+  const bbw   = ma.map((m,i)=> (upper[i]-lower[i])/(m||1e-9));
+  return { ma, upper, lower, bbw };
+}
+function atr14(high, low, close, n=14){
+  const tr=[NaN];
+  for(let i=1;i<close.length;i++){
+    tr.push(Math.max(high[i]-low[i], Math.abs(high[i]-close[i-1]), Math.abs(low[i]-close[i-1])));
+  }
+  // Wilder ATR
+  const out=[]; let prev=null;
+  for(let i=0;i<tr.length;i++){
+    const v=tr[i];
+    if(i<n) { out.push(NaN); continue; }
+    if(i===n){ const s=tr.slice(1,n+1).reduce((a,x)=>a+x,0); prev=s/n; out.push(prev); }
+    else { prev=(prev*(n-1)+v)/n; out.push(prev); }
+  }
+  return out;
+}
+function logRet(close, k){
+  const out = close.map(()=>NaN);
+  for(let i=k;i<close.length;i++){ out[i]=Math.log(close[i]/close[i-k]); }
+  return out;
+}
+
+// 由 OHLC 產生所有前端用指標
+function buildIndicators(rows){
+  const close = rows.map(r=>r.c), high=rows.map(r=>r.h), low=rows.map(r=>r.l);
+  const ema6  = ema(close,6),  ema24=ema(close,24), ema56=ema(close,56);
+  const rsi14v= rsi(close,14);
+  const {dif,dea,hist} = macd(close,12,26,9);
+  const {K,D,J} = kd(high,low,close,9,3,3);
+  const {ma:bb_mid, upper:bb_up, lower:bb_low, bbw} = boll(close,20,2);
+  const atr = atr14(high,low,close,14);
+  const lr1 = logRet(close,1), lr5 = logRet(close,5), lr7 = logRet(close,7), lr30 = logRet(close,30);
+
+  return {
+    ema6, ema24, ema56, rsi14:rsi14v, macd_dif:dif, macd_dea:dea, macd_hist:hist,
+    k:K, d:D, j:J, bb_upper:bb_up, bb_middle:bb_mid, bb_lower:bb_low, bbw,
+    atr14:atr, log_r1:lr1, log_r5:lr5, log_r7:lr7, log_r30:lr30
+  };
+}
+
+// ====== 畫圖 ======
+function mount(id){ return echarts.init(document.getElementById(id)); }
+function optBase(x, yname=''){
+  const C = themeColors();
+  return {
+    backgroundColor:'transparent',
+    textStyle:{ color:C.fg }, legend:{ top:0 },
     grid:{ left:50, right:20, top:10, bottom:40 },
-    xAxis:{ type:'category', data:categories, axisLabel:{ color:C.muted } },
+    xAxis:{ type:'category', data:x, boundaryGap:false, axisLabel:{ color:C.muted } },
+    yAxis:{ type:'value', name:yname, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    tooltip: tipStyle('axis')
+  };
+}
+const lineS = (name,data,smooth=true)=>({ type:'line', name, data, smooth, showSymbol:false });
+function renderCoinPage(coin, rows){
+  // K 線
+  const x = rows.map(r=>r.t);
+  const k = rows.map(r=>[r.o,r.c,r.l,r.h]);
+  if(!state.charts.k) state.charts.k = mount('kChart');
+  const C = themeColors();
+  state.charts.k.setOption({
+    backgroundColor:'transparent', textStyle:{ color:C.fg },
+    grid:{ left:50,right:20,top:10,bottom:40 },
+    xAxis:{ type:'category', data:x, axisLabel:{ color:C.muted } },
     yAxis:{ scale:true, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
-    dataZoom:[{type:'inside'},{type:'slider', textStyle:{color:C.muted}}],
+    dataZoom:[{type:'inside'},{type:'slider', textStyle:{ color:C.muted }}],
     tooltip: tipStyle('axis'),
-    series:[{
-      type:'candlestick', name:'ETH 6h', data:kdata,
-      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' },
-      markArea:{ data:markArea },
-      markLine:{ symbol:['none','none'], data:markLine, lineStyle:{type:'dashed'}, label:{show:true, color:C.fg} }
+    series:[{ type:'candlestick', name:`${coin} 1D`, data:k,
+      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' }
     }]
   });
 
-  if(pred){
-    $("#dir").textContent = (pred.direction==='up'?'▲ 上漲':'▼ 下跌');
-    $("#delta").textContent = fmtPct(pred.delta_pct);
-    $("#conf").textContent  = (pred.confidence*100).toFixed(0) + '%';
-    $("#band").textContent  = pred.conf_interval_pct.map(p=>(p>0?'+':'')+p.toFixed(2)+'%').join(' ~ ');
-    $("#predTs").textContent = fmtTs(pred.timestamp);
-  }
+  // 概覽
+  $("#coinTitle").textContent = coin;
+  $("#lastClose").textContent = rows.at(-1)?.c?.toFixed(2) ?? "—";
+  $("#rowsInfo").textContent = rows.length;
+  $("#rangeInfo").textContent = `${rows[0]?.t ?? "—"} ~ ${rows.at(-1)?.t ?? "—"}`;
+  $("#atrInfo").textContent = (state.ind.atr14.at(-1) ?? NaN).toFixed(2);
+
+  // 圖一：你的自製指標位（目前用 placeholder：以 log 報酬近 1/5 日代理）
+  if(!state.charts.basis) state.charts.basis = mount('chart-basis');
+  state.charts.basis.setOption(Object.assign(optBase(x,'%'),{
+    series:[ lineS('BASIS_O', state.ind.log_r1), lineS('BASIS_C', state.ind.log_r5) ]
+  }));
+  if(!state.charts.basischg) state.charts.basischg = mount('chart-basischg');
+  state.charts.basischg.setOption(Object.assign(optBase(x,'%'),{
+    series:[ lineS('BASIS_O_CHG%', state.ind.log_r7), lineS('BASIS_C_CHG%', state.ind.log_r30) ]
+  }));
+  if(!state.charts.whale) state.charts.whale = mount('chart-whale');
+  state.charts.whale.setOption(Object.assign(optBase(x,''),{ series:[ lineS('WHALE', state.ind.log_r30) ] }));
+  if(!state.charts.cbprem) state.charts.cbprem = mount('chart-cbprem');
+  state.charts.cbprem.setOption(Object.assign(optBase(x,'%'),{ series:[ lineS('CB_PREM%', state.ind.log_r7, false) ] }));
+
+  // 對數報酬區
+  if(!state.charts.ret) state.charts.ret = mount('chart-returns');
+  state.charts.ret.setOption(Object.assign(optBase(x,'log'),{
+    series:[ lineS('log 1d', state.ind.log_r1), lineS('log 5d', state.ind.log_r5) ]
+  }));
+  if(!state.charts.lr) state.charts.lr = mount('chart-logrets');
+  state.charts.lr.setOption(Object.assign(optBase(x,'log'),{
+    series:[ lineS('log 7d', state.ind.log_r7), lineS('log 30d', state.ind.log_r30) ]
+  }));
+
+  // 圖二：技術指標
+  if(!state.charts.atr) state.charts.atr = mount('chart-atr');
+  state.charts.atr.setOption(Object.assign(optBase(x,''),{ series:[ lineS('ATR14', state.ind.atr14) ] }));
+
+  if(!state.charts.ema) state.charts.ema = mount('chart-ema');
+  state.charts.ema.setOption(Object.assign(optBase(x,''),{
+    series:[ lineS('EMA6', state.ind.ema6), lineS('EMA24', state.ind.ema24), lineS('EMA56', state.ind.ema56) ]
+  }));
+
+  if(!state.charts.rsi) state.charts.rsi = mount('chart-rsi');
+  const o = optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
+  state.charts.rsi.setOption(Object.assign(o, { series:[ lineS('RSI14', state.ind.rsi14) ] }));
+
+  if(!state.charts.macd) state.charts.macd = mount('chart-macd');
+  state.charts.macd.setOption(Object.assign(optBase(x,''),{
+    series:[
+      lineS('DIF', state.ind.macd_dif),
+      lineS('DEA', state.ind.macd_dea),
+      { type:'bar', name:'Hist', data: state.ind.macd_hist, barWidth: 2 }
+    ]
+  }));
+
+  if(!state.charts.kd) state.charts.kd = mount('chart-kd');
+  const okd=optBase(x,''); okd.yAxis.min=0; okd.yAxis.max=100;
+  state.charts.kd.setOption(Object.assign(okd, {
+    series:[ lineS('K', state.ind.k), lineS('D', state.ind.d), lineS('J', state.ind.j) ]
+  }));
+
+  if(!state.charts.boll) state.charts.boll = mount('chart-boll');
+  state.charts.boll.setOption(Object.assign(optBase(x,''),{
+    series:[
+      lineS('BB Upper', state.ind.bb_upper),
+      lineS('BB Middle', state.ind.bb_middle),
+      lineS('BB Lower', state.ind.bb_lower),
+      lineS('BBW', state.ind.bbw)
+    ]
+  }));
 }
 
-// ==== 共用繪圖 util（指標區） ====
-function mount(id){ return echarts.init(document.getElementById(id)); }
-function optBase(x,yname=''){ const C=themeColors(); return {
-  backgroundColor:'transparent', textStyle:{color:C.fg},
-  grid:{left:50,right:20,top:10,bottom:40},
-  xAxis:{type:'category',data:x,boundaryGap:false,axisLabel:{color:C.muted}},
-  yAxis:{type:'value',name:yname,axisLabel:{color:C.muted},splitLine:{lineStyle:{color:C.grid}}},
-  legend:{top:0}, tooltip: tipStyle('axis')
-};}
-function line(name,data,smooth=true){ return { type:'line', name, data, smooth, showSymbol:false }; }
-function getInd(){ return Array.isArray(state.ind)?state.ind:[]; }
-function X(){ return getInd().map(r=>String(r.ts).slice(0,16).replace('T',' ')); }
+// ====== 首頁：模型資訊（用你舊的 sample 一路畫） ======
+async function renderHome(){
+  // 這裡沿用原來的 sample 結構，讓首頁先能動
+  const pred = await fetchJSON("./data/predict_sample.json").catch(()=>({}));
+  const imp = (pred.importances||[]).slice().sort((a,b)=>b[1]-a[1]);
+  const C = themeColors();
 
-// ==== 13 張指標圖 ====
-function render_BASIS(){ const x=X(),rows=getInd();
-  mount('chart-basis').setOption(Object.assign(optBase(x,'%'),{ series:[ line('BASIS_O',rows.map(r=>r.open_basis)), line('BASIS_C',rows.map(r=>r.close_basis)) ] }));
-}
-function render_BASIS_CHG(){ const x=X(),rows=getInd();
-  mount('chart-basischg').setOption(Object.assign(optBase(x,'%'),{ series:[ line('BASIS_O_CHG%',rows.map(r=>r.open_change)), line('BASIS_C_CHG%',rows.map(r=>r.close_change)) ] }));
-}
-function render_WHALE(){ const x=X(),rows=getInd();
-  mount('chart-whale').setOption(Object.assign(optBase(x,''),{ series:[ line('WHALE',rows.map(r=>r.whale_index_value)) ] }));
-}
-function render_CBPREM(){ const x=X(),rows=getInd();
-  mount('chart-cbprem').setOption(Object.assign(optBase(x,'%'),{ series:[ line('CB_PREM%',rows.map(r=>r.premium_rate),false) ] }));
-}
-function render_RET(){ const x=X(),rows=getInd();
-  mount('chart-returns').setOption(Object.assign(optBase(x,'log'),{ series:[ line('log R6',rows.map(r=>r.log_ret_6h)), line('log R24',rows.map(r=>r.log_ret_24h)) ] }));
-}
-function render_LOGRET(){ const x=X(),rows=getInd();
-  mount('chart-logrets').setOption(Object.assign(optBase(x,'log'),{ series:[ line('LR6',rows.map(r=>r.log_ret_6h)), line('LR24',rows.map(r=>r.log_ret_24h)) ] }));
-}
-function render_ATR(){ const x=X(),rows=getInd();
-  mount('chart-atr').setOption(Object.assign(optBase(x,''),{ series:[ line('ATR14',rows.map(r=>r.atr14)) ] }));
-}
-function render_EMA(){ const x=X(),rows=getInd();
-  mount('chart-ema').setOption(Object.assign(optBase(x,''),{ series:[ line('EMA6',rows.map(r=>r.ema6)), line('EMA24',rows.map(r=>r.ema24)), line('EMA56',rows.map(r=>r.ema56)) ] }));
-}
-function render_RSI(){ const x=X(),rows=getInd(); const o=optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
-  mount('chart-rsi').setOption(Object.assign(o,{ series:[ line('RSI14',rows.map(r=>r.rsi14)) ] }));
-}
-function render_MACD(){ const x=X(),rows=getInd();
-  mount('chart-macd').setOption(Object.assign(optBase(x,''),{ series:[ line('DIF',rows.map(r=>r.macd_dif)), line('DEA',rows.map(r=>r.macd_dea)), {type:'bar',name:'Hist',data:rows.map(r=>r.macd_hist),barWidth:2} ] }));
-}
-function render_KD(){ const x=X(),rows=getInd(); const o=optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
-  mount('chart-kd').setOption(Object.assign(o,{ series:[ line('K',rows.map(r=>r.k)), line('D',rows.map(r=>r.d)), line('J',rows.map(r=>r.j)) ] }));
-}
-function render_BOLL(){ const x=X(),rows=getInd();
-  mount('chart-boll').setOption(Object.assign(optBase(x,''),{ series:[ line('BB Upper',rows.map(r=>r.bb_upper)), line('BB Middle',rows.map(r=>r.bb_middle)), line('BB Lower',rows.map(r=>r.bb_lower)), line('BBW(20,2)',rows.map(r=>r.bbw)) ] }));
-}
-function renderAllIndicators(){
-  if(!getInd().length) return;
-  render_BASIS(); render_BASIS_CHG(); render_WHALE(); render_CBPREM();
-  render_RET(); render_LOGRET(); render_ATR();
-  render_EMA(); render_RSI(); render_MACD(); render_KD(); render_BOLL();
-}
+  // 重要度
+  if(!state.charts.imp) state.charts.imp = echarts.init(document.getElementById('impChart'));
+  state.charts.imp.setOption({
+    backgroundColor:'transparent',
+    textStyle:{ color:C.fg },
+    grid:{ left: 80, right: 20, top: 20, bottom: 30 },
+    xAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    yAxis:{ type:'category', data: imp.map(x=>x[0]), axisLabel:{ color:C.muted } },
+    series:[{ type:'bar', data: imp.map(x=>x[1]), name:'重要度' }],
+    tooltip: tipStyle('item')
+  });
 
-// ==== 混淆矩陣與回測指標 ====
-function confusionMatrixAndMetrics(){
-  const rows=(state.backtest?.data||[]); const N=rows.length; let TP=0,TN=0,FP=0,FN=0;
-  rows.forEach(r=>{ const p=(r.pred_dir==='up'); const a=(r.actual_dir==='up');
-    if(p&&a)TP++; else if(!p&&!a)TN++; else if(p&&!a)FP++; else if(!p&&a)FN++; });
-  const acc=N?(TP+TN)/N:0; const prec=(TP+FP)?TP/(TP+FP):0; const rec=(TP+FN)?TP/(TP+FN):0; const f1=(prec+rec)?2*prec*rec/(prec+rec):0;
-  const C=themeColors();
+  // 特徵
+  const grid = $("#featGrid"); grid.innerHTML="";
+  Object.entries(pred.features||{}).forEach(([k,v])=>{
+    const el=document.createElement('div');
+    el.innerHTML = `<div class="muted">${k}</div><div class="mono" style="font-size:18px; font-weight:700;">${v}</div>`;
+    grid.appendChild(el);
+  });
+
+  // 模型文字
+  const m = pred.model||{};
+  const txt = [
+    `模型：${m.name||'—'} (${m.version||'—'})`,
+    `訓練區間：${m.trained_window||'—'}`,
+    `目標：${m.target||'—'}，損失：${m.loss||'—'}`,
+    `指標：F1=${m.metrics?.f1 ?? '—'}, Precision=${m.metrics?.precision ?? '—'}, Recall=${m.metrics?.recall ?? '—'}, RMSE=${m.metrics?.rmse ?? '—'}, MAPE=${m.metrics?.mape ?? '—'}`,
+    `超參數：`, JSON.stringify(m.hyperparams||{}, null, 2)
+  ].join('\n');
+  $("#modelInfo").textContent = txt;
+
+  // 混淆矩陣（沿用）
+  const back = await fetchJSON("./data/backtest_sample.json").catch(()=>({}));
+  const rows = back.data||[]; let TP=0,TN=0,FP=0,FN=0;
+  rows.forEach(r=>{
+    const p=(r.pred_dir==='up'), a=(r.actual_dir==='up');
+    if(p&&a)TP++; else if(!p&&!a)TN++; else if(p&&!a)FP++; else FN++;
+  });
+  const N=rows.length, acc=N?(TP+TN)/N:0, prec=(TP+FP)?TP/(TP+FP):0, rec=(TP+FN)?TP/(TP+FN):0;
+  if(!state.charts.cm) state.charts.cm = echarts.init(document.getElementById('cmChart'));
   state.charts.cm.setOption({
-    tooltip:Object.assign(tipStyle('item'),{position:'top'}), textStyle:{color:C.fg},
-    grid:{left:80,right:20,top:40,bottom:20},
-    xAxis:{type:'category',data:['預測↓ / 真實→','up','down'],show:false},
-    yAxis:{type:'category',data:['up','down'],axisLabel:{color:C.muted}},
-    visualMap:{min:0,max:Math.max(1,TP+TN+FP+FN),calculable:false,orient:'horizontal',left:'center',bottom:0,textStyle:{color:C.muted}},
-    series:[{name:'Confusion',type:'heatmap',data:[[1,0,TP],[2,0,FP],[1,1,FN],[2,1,TN]],label:{show:true,color:C.fg}}]
+    tooltip: Object.assign(tipStyle('item'), { position:'top' }),
+    textStyle:{ color:C.fg },
+    grid:{ left:80, right:20, top:40, bottom:20 },
+    xAxis:{ type:'category', data:['預測↓ / 真實→','up','down'], show:false },
+    yAxis:{ type:'category', data:['up','down'], axisLabel:{ color:C.muted } },
+    visualMap:{ min:0, max:Math.max(1,TP+TN+FP+FN), calculable:false, orient:'horizontal', left:'center', bottom:0, textStyle:{ color:C.muted } },
+    series:[{ type:'heatmap', data:[[1,0,TP],[2,0,FP],[1,1,FN],[2,1,TN]], label:{ show:true, color:C.fg } }]
   });
   $("#btMetrics").innerHTML = `
     <tr><th>樣本數 N</th><td class="mono">${N}</td></tr>
     <tr><th>Accuracy</th><td class="mono">${(acc*100).toFixed(1)}%</td></tr>
     <tr><th>Precision (上漲)</th><td class="mono">${(prec*100).toFixed(1)}%</td></tr>
     <tr><th>Recall (上漲)</th><td class="mono">${(rec*100).toFixed(1)}%</td></tr>
-    <tr><th>F1</th><td class="mono">${(f1*100).toFixed(1)}%</td></tr>`;
+    <tr><th>F1</th><td class="mono">${(2*prec*rec/(prec+rec||1e-9)*100).toFixed(1)}%</td></tr>
+  `;
 }
 
-// ==== 模型重要度 / 特徵 ====
-function renderImportancesAndFeatures(){
-  const pred=state.predict||{}; const imp=(pred.importances||[]).slice().sort((a,b)=>b[1]-a[1]);
-  const impNames=imp.map(x=>x[0]); const impVals=imp.map(x=>x[1]); const C=themeColors();
-  state.charts.imp.setOption({
-    backgroundColor:'transparent', textStyle:{color:C.fg},
-    grid:{left:80,right:20,top:20,bottom:30},
-    xAxis:{type:'value',axisLabel:{color:C.muted},splitLine:{lineStyle:{color:C.grid}}},
-    yAxis:{type:'category',data:impNames,axisLabel:{color:C.muted}},
-    series:[{type:'bar',data:impVals,name:'重要度',label:{show:false,color:C.fg}}],
-    tooltip: tipStyle('item')
-  });
-  const grid=$("#featGrid"); grid.innerHTML=""; const feats=pred.features||{};
-  Object.entries(feats).forEach(([k,v])=>{ const el=document.createElement('div'); el.innerHTML=`<div class="muted">${k}</div><div class="mono" style="font-size:18px; font-weight:700;">${v}</div>`; grid.appendChild(el); });
-  const m=pred.model||{};
-  $("#modelInfo").textContent=[
-    `模型：${m.name||'—'} (${m.version||'—'})`,
-    `訓練區間：${m.trained_window||'—'}`,
-    `目標：${m.target||'—'}，損失：${m.loss||'—'}`,
-    `指標：F1=${m.metrics?.f1??'—'}, Precision=${m.metrics?.precision??'—'}, Recall=${m.metrics?.recall??'—'}, RMSE=${m.metrics?.rmse??'—'}, MAPE=${m.metrics?.mape??'—'}`,
-    `超參數：`,
-    JSON.stringify(m.hyperparams||{},null,2)
-  ].join('\n');
+// ====== 進入分頁 ======
+async function enterCoin(coin){
+  $("#route-home").style.display = "none";
+  $("#route-coin").style.display = "";
+  // 清空（避免殘影）
+  Object.values(state.charts).forEach(ch=> ch && ch.clear());
+
+  state.ohlc = await getOHLC(coin);
+  state.ind  = buildIndicators(state.ohlc);
+  renderCoinPage(coin, state.ohlc);
+}
+async function enterHome(){
+  $("#route-coin").style.display = "none";
+  $("#route-home").style.display = "";
+  Object.values(state.charts).forEach(ch=> ch && ch.clear());
+  state.charts = {};
+  await renderHome();
 }
 
-// ==== 主流程 ====
+// ====== 主流程 ======
 async function main(){
-  if(params.get('theme')==='dark'){ document.body.setAttribute('data-theme','dark'); $("#themeLabel").textContent='黑'; }
-  const bot=params.get('bot'); if(bot){ $("#tgButton").href=`https://t.me/${bot}`; }
-  await loadData();
-  await loadIndicators();
-  ensureCharts();
-  renderPriceAndPredict();
-  renderImportancesAndFeatures();
-  confusionMatrixAndMetrics();
-  renderAllIndicators();
+  state.route = currentRoute();
+  buildTabs();
+  if(state.route==="HOME") await enterHome();
+  else await enterCoin(state.route);
 }
-$("#themeToggle").addEventListener('click',()=>{
-  const now=document.body.getAttribute('data-theme'); const next= now==='light'?'dark':'light';
-  document.body.setAttribute('data-theme',next); $("#themeLabel").textContent = next==='light'?'白':'黑';
-  renderPriceAndPredict(); renderImportancesAndFeatures(); confusionMatrixAndMetrics();
+
+// ====== 主題切換 ======
+$("#themeToggle").addEventListener('click', ()=>{
+  const now = document.body.getAttribute('data-theme');
+  const next = now==='light' ? 'dark' : 'light';
+  document.body.setAttribute('data-theme', next);
+  $("#themeLabel").textContent = next==='light' ? '白' : '黑';
+  main(); // 重新畫（套用 tooltip 顏色）
 });
+
+// 啟動
 main();
