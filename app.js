@@ -57,18 +57,36 @@ window.addEventListener('hashchange', main);
 
 // ====== 讀資料：Supabase（或 sample） ======
 async function fetchJSON(url, opts){ const r=await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
-async function fetchPricesFromSB(coin){
-  if(!SUPABASE_URL || !SUPABASE_KEY) return null;
-  const base = SUPABASE_URL.replace(/\/$/,'');
-  const q = `select=ts_utc,open,high,low,close,volume&coin=eq.${coin}&order=ts_utc.asc`;
-  const url = `${base}/rest/v1/${PRICES_TABLE}?${q}`;
-  try{
-    const rows = await fetchJSON(url, { headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}` } });
-    return rows.map(r=>({
-      t: new Date(Number(r.ts_utc)).toISOString().slice(0,10),
-      o: +r.open, h: +r.high, l:+r.low, c:+r.close, v:+r.volume
-    }));
-  }catch(e){ console.warn("SB 價格取用失敗：",e); return null; }
+async function fetchPricesFromSB(coin) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+  const base = SUPABASE_URL.replace(/\/$/, '');
+  const pageSize = 1000;
+  let lastTs = -1;
+  let all = [];
+
+  while (true) {
+    const q = new URLSearchParams({
+      select: 'ts_utc,open,high,low,close,volume',
+      'coin': `eq.${coin}`,
+      'ts_utc': `gt.${lastTs}`,
+      order: 'ts_utc.asc',
+      limit: String(pageSize),
+    });
+    const url = `${base}/rest/v1/${PRICES_TABLE}?${q.toString()}`;
+    const rows = await fetchJSON(url, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+
+    if (!rows.length) break;
+    all = all.concat(rows);
+    lastTs = rows[rows.length - 1].ts_utc; // 下一輪從這個之後繼續抓
+    if (rows.length < pageSize) break;     // 已到最後一頁
+  }
+
+  return all.map(r => ({
+    t: new Date(Number(r.ts_utc)).toISOString().slice(0, 10),
+    o: +r.open, h: +r.high, l: +r.low, c: +r.close, v: +r.volume
+  }));
 }
 
 async function loadSample(){
