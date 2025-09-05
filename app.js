@@ -1,4 +1,4 @@
-// ====== 基本設定 ======
+// ===== 全域設定 =====
 const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(window.location.search);
 
@@ -6,21 +6,18 @@ const COINS = ['BTC','ETH','XRP','DOGE','BNB','SOL','ADA'];
 const state = {
   history:null, predict:null, backtest:null,
   charts:{ home:null, imp:null, cm:null, coin:null },
-  ind:null,        // （首頁其他指標留用）
   currentTab:'home',
-  coinCache:{}     // { 'BTC': {data:[...]} }：簡單快取避免重複請求
+  // 簡易快取：避免重複請求
+  coinHistCache:{},     // { BTC: {data:[...]}, ... }
+  coinIndCache:{}       // { BTC: [rows], ... }
 };
 
-// CSS 變數 → 主題色
+// ===== 主題/樣式 =====
 const getVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim() || "#e5e7eb";
 function themeColors() {
   return {
-    fg: getVar('--fg'),
-    muted: getVar('--muted'),
-    accent: getVar('--accent'),
-    grid: 'rgba(148,163,184,.2)',
-    tbg: getVar('--tooltip-bg'),
-    tfg: getVar('--tooltip-fg'),
+    fg: getVar('--fg'), muted: getVar('--muted'), accent: getVar('--accent'),
+    grid: 'rgba(148,163,184,.2)', tbg: getVar('--tooltip-bg'), tfg: getVar('--tooltip-fg'),
   };
 }
 function tipStyle(trigger='axis', extra={}) {
@@ -34,7 +31,7 @@ function tipStyle(trigger='axis', extra={}) {
   }, extra);
 }
 
-// API Base（留空→使用 sample）
+// ===== API Base（留空→使用 sample） =====
 function getApiBase() {
   const val = $("#apiBase") ? $("#apiBase").value.trim() : "";
   return val || "";
@@ -47,7 +44,7 @@ async function fetchJson(url) {
 function fmtPct(x) { return (x>0?'+':'') + x.toFixed(2) + '%'; }
 function fmtTs(ts) { try { return new Date(ts).toLocaleString(); } catch { return ts; } }
 
-// ====== 首頁：沿用你原本的資料來源（sample 或 API） ======
+// ===== 首頁：沿用你原本的資料（示例 / API） =====
 async function loadHomeData() {
   const base = getApiBase();
   if (base) {
@@ -66,8 +63,6 @@ async function loadHomeData() {
     state.history = hist; state.predict = pred; state.backtest = back;
   }
 }
-
-// ====== 首頁圖表（沿用既有） ======
 function ensureHomeCharts() {
   if (!state.charts.home) {
     state.charts.home = echarts.init(document.getElementById('chart'));
@@ -102,19 +97,19 @@ function renderPriceAndPredict() {
   }
   const C = themeColors();
   state.charts.home.setOption({
-    backgroundColor: 'transparent',
-    animation: true,
-    textStyle: { color: C.fg },
-    grid: { left: 50, right: 20, top: 10, bottom: 40 },
-    xAxis: { type:'category', data: categories, axisLabel:{ color: C.muted } },
-    yAxis: { scale: true, axisLabel:{ color: C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
-    dataZoom: [{ type:'inside' }, { type:'slider', textStyle:{ color: C.muted } }],
+    backgroundColor:'transparent',
+    animation:true,
+    textStyle:{ color:C.fg },
+    grid:{ left:50, right:20, top:10, bottom:40 },
+    xAxis:{ type:'category', data:categories, axisLabel:{ color:C.muted } },
+    yAxis:{ scale:true, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    dataZoom:[{type:'inside'},{type:'slider', textStyle:{ color:C.muted }}],
     tooltip: tipStyle('axis'),
-    series: [{
-      type:'candlestick', name:'ETH 6h', data: kdata,
-      itemStyle: { color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' },
-      markArea: { data: markArea },
-      markLine: { symbol:['none','none'], data: markLine, lineStyle:{ type:'dashed' }, label:{ show:true, color:C.fg } },
+    series:[{
+      type:'candlestick', name:'ETH 6h', data:kdata,
+      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' },
+      markArea:{ data:markArea },
+      markLine:{ symbol:['none','none'], data:markLine, lineStyle:{ type:'dashed' }, label:{ show:true, color:C.fg } },
     }]
   });
 
@@ -176,7 +171,6 @@ function confusionMatrixAndMetrics() {
   const f1 = (prec+rec) ? 2*prec*rec/(prec+rec) : 0;
 
   const C = themeColors();
-  if (!state.charts.cm) return;
   state.charts.cm.setOption({
     tooltip: tipStyle('item', { position:'top' }),
     textStyle:{ color: C.fg },
@@ -186,7 +180,7 @@ function confusionMatrixAndMetrics() {
     visualMap: { min: 0, max: Math.max(1, TP+TN+FP+FN), calculable: false, orient: 'horizontal', left: 'center', bottom: 0,
                  textStyle:{ color: C.muted } },
     series: [{ name:'Confusion', type:'heatmap',
-      data: [[1,0,TP],[2,0,FP],[1,1,FN],[2,1,TN]], label:{ show:true, color:C.fg } }]
+      data: [[1,0,TP],[2,0,FP],[1,1,FN],[2,1,TN]], label:{ show:true, color: C.fg } }]
   });
 
   $("#btMetrics").innerHTML = `
@@ -198,7 +192,7 @@ function confusionMatrixAndMetrics() {
   `;
 }
 
-// ====== 幣別 1d K 線 ======
+// ===== 幣別：1d K線 =====
 function ensureCoinChart() {
   if (!state.charts.coin) {
     state.charts.coin = echarts.init(document.getElementById('coinChart'));
@@ -206,19 +200,15 @@ function ensureCoinChart() {
   }
 }
 async function loadCoinHistory(symbol) {
-  if (state.coinCache[symbol]) return state.coinCache[symbol];
+  if (state.coinHistCache[symbol]) return state.coinHistCache[symbol];
   const base = getApiBase();
-  if (!base) {
-    // 沒 API 就給空資料（顯示「請設定 API」）
-    state.coinCache[symbol] = { data: [] };
-    return state.coinCache[symbol];
-  }
+  if (!base) { state.coinHistCache[symbol] = { data: [] }; return state.coinHistCache[symbol]; }
   const url = `${base}/api/history?symbol=${symbol}USDT&interval=1d&limit=500`;
   const data = await fetchJson(url);
-  state.coinCache[symbol] = data;
+  state.coinHistCache[symbol] = data;
   return data;
 }
-function renderCoin(symbol, data) {
+function renderCoinK(symbol, data) {
   $("#coinTitle").textContent = symbol;
   const rows = data?.data || [];
   const x = rows.map(d => d.t);
@@ -232,68 +222,207 @@ function renderCoin(symbol, data) {
     yAxis:{ scale:true, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
     dataZoom:[{type:'inside'},{type:'slider', textStyle:{color:C.muted}}],
     tooltip: tipStyle('axis'),
-    series:[{
-      type:'candlestick', name:`${symbol} 1d`, data:k,
-      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' }
-    }]
+    series:[{ type:'candlestick', name:`${symbol} 1d`, data:k,
+      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' } }]
   });
 }
 
-// ====== Router（hash 分頁） ======
-function showPage(tab) {
+// ===== 幣別：指標（圖一 + 圖二） =====
+// 若你的 Supabase 是單一表含 symbol/tf 欄位 → 填下方常數；若是「每幣一表」→ 改寫 TABLE_MAP。
+const SUPABASE_URL = "";                 // e.g. "https://YOUR.supabase.co"
+const SUPABASE_KEY = "";                 // 只填 anon key（讀取用）
+const IND_TABLE = "lake_1d";             // 建議 1d 指標視圖
+const SYMBOL_COL = "symbol";             // 幣別欄位名
+const TF_COL = "tf";                     // 週期欄位名（若沒有可留空）
+const TF_VALUE = "1d";
+
+/** 把百分比轉對數報酬（可用就用 log） */
+function toLogFromPct(pct){
+  const r = Number(pct)/100;
+  if (!isFinite(r) || r <= -0.999999999) return NaN;
+  return Math.log(1+r);
+}
+function transformIndRows(rows){
+  return (rows||[]).map(r=>{
+    const o = {...r};
+    if (o.log_ret_6h==null && o.ret_6h!=null)  o.log_ret_6h = toLogFromPct(o.ret_6h);
+    if (o.log_ret_24h==null && o.ret_24h!=null) o.log_ret_24h = toLogFromPct(o.ret_24h);
+    return o;
+  });
+}
+
+async function loadCoinIndicators(symbol){
+  if (state.coinIndCache[symbol]) return state.coinIndCache[symbol];
+  // 若沒設定 Supabase，就回空（只顯示 K 線）
+  if (!SUPABASE_URL || !SUPABASE_KEY) { state.coinIndCache[symbol]=[]; return []; }
+
+  const base = SUPABASE_URL.replace(/\/$/,'');
+  const fields = [
+    'ts',
+    'open_basis','close_basis','open_change','close_change',
+    'whale_index_value','premium_rate',
+    'ret_6h','ret_24h','log_ret_6h','log_ret_24h','atr14',
+    'ema6','ema24','ema56',
+    'rsi14',
+    'macd_dif','macd_dea','macd_hist',
+    'k','d','j',
+    'bb_upper','bb_middle','bb_lower','bbw'
+  ];
+  const qs = [`select=${encodeURIComponent(fields.join(','))}`, `order=ts.asc`, `limit=1500`];
+  if (SYMBOL_COL) qs.push(`${SYMBOL_COL}=eq.${symbol}`);
+  if (TF_COL && TF_VALUE) qs.push(`${TF_COL}=eq.${TF_VALUE}`);
+
+  const url = `${base}/rest/v1/${IND_TABLE}?${qs.join('&')}`;
+  const r = await fetch(url, { headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}` } });
+  if (!r.ok) { console.warn('Supabase indicators HTTP', r.status); state.coinIndCache[symbol]=[]; return []; }
+  const rows = await r.json();
+  const out = transformIndRows(rows||[]);
+  state.coinIndCache[symbol] = out;
+  return out;
+}
+
+// 小工具：共用 option / series
+function optBase(x, yname=''){
+  const C = themeColors();
+  return {
+    backgroundColor:'transparent',
+    textStyle:{ color:C.fg },
+    grid:{ left:50, right:20, top:10, bottom:40 },
+    xAxis:{ type:'category', data:x, boundaryGap:false, axisLabel:{ color:C.muted } },
+    yAxis:{ type:'value', name:yname, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    legend:{ top:0 },
+    tooltip: tipStyle('axis')
+  };
+}
+function line(name,data,smooth=true){ return { type:'line', name, data, smooth, showSymbol:false }; }
+function X(rows){ return rows.map(r => String(r.ts).slice(0,16).replace('T',' ')); }
+
+// 依幣別渲染整套指標
+function renderCoinIndicators(symbol, rows){
+  const x = X(rows);
+
+  echarts.init(document.getElementById('coin-basis'))
+    .setOption(Object.assign(optBase(x,'%'),{
+      series:[ line('BASIS_O', rows.map(r=>r.open_basis)),
+               line('BASIS_C', rows.map(r=>r.close_basis)) ] }));
+
+  echarts.init(document.getElementById('coin-basischg'))
+    .setOption(Object.assign(optBase(x,'%'),{
+      series:[ line('BASIS_O_CHG%', rows.map(r=>r.open_change)),
+               line('BASIS_C_CHG%', rows.map(r=>r.close_change)) ] }));
+
+  echarts.init(document.getElementById('coin-whale'))
+    .setOption(Object.assign(optBase(x,''),{
+      series:[ line('WHALE', rows.map(r=>r.whale_index_value)) ] }));
+
+  echarts.init(document.getElementById('coin-cbprem'))
+    .setOption(Object.assign(optBase(x,'%'),{
+      series:[ line('CB_PREM%', rows.map(r=>r.premium_rate), false) ] }));
+
+  // 報酬 → 盡量用 log
+  echarts.init(document.getElementById('coin-returns'))
+    .setOption(Object.assign(optBase(x,'log'),{
+      series:[ line('log R6', rows.map(r=>r.log_ret_6h)),
+               line('log R24', rows.map(r=>r.log_ret_24h)) ] }));
+
+  echarts.init(document.getElementById('coin-logrets'))
+    .setOption(Object.assign(optBase(x,'log'),{
+      series:[ line('LR6', rows.map(r=>r.log_ret_6h)),
+               line('LR24', rows.map(r=>r.log_ret_24h)) ] }));
+
+  echarts.init(document.getElementById('coin-atr'))
+    .setOption(Object.assign(optBase(x,''),{
+      series:[ line('ATR14', rows.map(r=>r.atr14)) ] }));
+
+  echarts.init(document.getElementById('coin-ema'))
+    .setOption(Object.assign(optBase(x,''),{
+      series:[ line('EMA6', rows.map(r=>r.ema6)),
+               line('EMA24', rows.map(r=>r.ema24)),
+               line('EMA56', rows.map(r=>r.ema56)) ] }));
+
+  (function(){
+    const o = optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
+    echarts.init(document.getElementById('coin-rsi'))
+      .setOption(Object.assign(o,{ series:[ line('RSI14', rows.map(r=>r.rsi14)) ] }));
+  })();
+
+  echarts.init(document.getElementById('coin-macd'))
+    .setOption(Object.assign(optBase(x,''),{
+      series:[ line('DIF', rows.map(r=>r.macd_dif)),
+               line('DEA', rows.map(r=>r.macd_dea)),
+               { type:'bar', name:'Hist', data: rows.map(r=>r.macd_hist), barWidth: 2 } ] }));
+
+  (function(){
+    const o = optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
+    echarts.init(document.getElementById('coin-kd'))
+      .setOption(Object.assign(o,{
+        series:[ line('K', rows.map(r=>r.k)),
+                 line('D', rows.map(r=>r.d)),
+                 line('J', rows.map(r=>r.j)) ] }));
+  })();
+
+  echarts.init(document.getElementById('coin-boll'))
+    .setOption(Object.assign(optBase(x,''),{
+      series:[ line('BB Upper', rows.map(r=>r.bb_upper)),
+               line('BB Middle', rows.map(r=>r.bb_middle)),
+               line('BB Lower', rows.map(r=>r.bb_lower)),
+               line('BBW(20,2)', rows.map(r=>r.bbw)) ] }));
+}
+
+// ===== Router（hash 分頁） =====
+function showPage(tab){
   state.currentTab = tab;
-  // tabbar 標記
   document.querySelectorAll('#tabbar .btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.tab === tab);
   });
-  // 顯示/隱藏頁面
-  $("#page-home").classList.toggle('show', tab === 'home');
-  $("#page-coin").classList.toggle('show', tab !== 'home');
+  $("#page-home").classList.toggle('show', tab==='home');
+  $("#page-coin").classList.toggle('show', tab!=='home');
 
-  if (tab === 'home') {
+  if (tab==='home'){
     ensureHomeCharts();
     renderPriceAndPredict();
     renderImportancesAndFeatures();
     confusionMatrixAndMetrics();
   } else {
     ensureCoinChart();
-    loadCoinHistory(tab).then(d => renderCoin(tab, d)).catch(()=>{
-      renderCoin(tab, {data:[]});
-    });
+    Promise.all([ loadCoinHistory(tab), loadCoinIndicators(tab) ])
+      .then(([hist, ind])=>{
+        renderCoinK(tab, hist);
+        if (ind && ind.length) renderCoinIndicators(tab, ind);
+      })
+      .catch(err=>{
+        console.warn('coin page error', err);
+        renderCoinK(tab, {data:[]});
+      });
   }
 }
-function applyHashRoute() {
-  const h = (location.hash || '').replace(/^#/, '').toUpperCase();
-  if (!h || h === 'HOME') showPage('home');
+function applyHashRoute(){
+  const h = (location.hash || '').replace(/^#/,'').toUpperCase();
+  if (!h || h==='HOME') showPage('home');
   else if (COINS.includes(h)) showPage(h);
   else showPage('home');
 }
 window.addEventListener('hashchange', applyHashRoute);
 document.getElementById('tabbar').addEventListener('click', (e)=>{
   const t = e.target.closest('[data-tab]'); if (!t) return;
-  const tab = t.dataset.tab;
-  location.hash = tab.toLowerCase();
+  location.hash = t.dataset.tab.toLowerCase();
 });
 
-// ====== 初始化 ======
-async function main() {
+// ===== 初始化 =====
+async function main(){
   if (params.get('theme') === 'dark') {
-    document.body.setAttribute('data-theme', 'dark');
+    document.body.setAttribute('data-theme','dark');
     $("#themeLabel").textContent = '黑';
   }
-  const bot = params.get('bot');
-  if (bot) $("#tgButton")?.setAttribute('href', `https://t.me/${bot}`);
+  const bot = params.get('bot'); if (bot) $("#tgButton")?.setAttribute('href', `https://t.me/${bot}`);
 
-  await loadHomeData();      // 首頁資料（樣例/你的 API）
-  ensureHomeCharts();
-  ensureCoinChart();
-  renderPriceAndPredict();
-  renderImportancesAndFeatures();
-  confusionMatrixAndMetrics();
+  await loadHomeData();
+  ensureHomeCharts(); ensureCoinChart();
+  renderPriceAndPredict(); renderImportancesAndFeatures(); confusionMatrixAndMetrics();
 
-  applyHashRoute();          // 根據目前 hash 顯示正確頁
+  applyHashRoute();
 }
-$("#themeToggle").addEventListener('click', () => {
+$("#themeToggle").addEventListener('click', ()=>{
   const now = document.body.getAttribute('data-theme');
   const next = now === 'light' ? 'dark' : 'light';
   document.body.setAttribute('data-theme', next);
@@ -302,7 +431,8 @@ $("#themeToggle").addEventListener('click', () => {
   if (state.currentTab === 'home') {
     renderPriceAndPredict(); renderImportancesAndFeatures(); confusionMatrixAndMetrics();
   } else if (COINS.includes(state.currentTab)) {
-    loadCoinHistory(state.currentTab).then(d => renderCoin(state.currentTab, d));
+    Promise.all([ loadCoinHistory(state.currentTab), loadCoinIndicators(state.currentTab) ])
+      .then(([hist, ind])=>{ renderCoinK(state.currentTab, hist); if (ind.length) renderCoinIndicators(state.currentTab, ind); });
   }
 });
 main();

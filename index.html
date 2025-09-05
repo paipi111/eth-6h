@@ -35,15 +35,15 @@
     table.metrics { width:100%; border-collapse: collapse; }
     table.metrics th, table.metrics td { padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,.25); text-align:left; }
 
-    /* 導覽分頁 */
+    /* 分頁列 */
     .tabbar { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
     .tabbar .btn.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.15) inset; }
 
-    /* 區塊隱藏/顯示 */
+    /* 內容切換 */
     .page { display:none; }
     .page.show { display:block; }
 
-    /* 錨點位移（維持） */
+    /* 錨點偏移：由 JS 動態寫入 --header-height */
     .section-anchor { scroll-margin-top: calc(var(--header-height, 0px) + 12px); }
   </style>
 </head>
@@ -54,9 +54,7 @@
     <div class="header" id="topHeader">
       <div>
         <div class="title">Crypto 1d K線與模型資訊（公開版）</div>
-        <div class="muted">右上角可設定 API Base。首頁為模型資訊；各分頁顯示 1d K 線。</div>
-
-        <!-- 分頁列 -->
+        <div class="muted">右上角可設定 API Base。首頁為模型資訊；各分頁顯示 1d K 線 + 自製/技術指標。</div>
         <div class="tabbar" id="tabbar">
           <a class="btn" data-tab="home">Home</a>
           <a class="btn" data-tab="BTC">BTC</a>
@@ -70,13 +68,13 @@
       </div>
       <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
         <div class="muted mono">API:
-          <input id="apiBase" class="mono" style="width:280px; padding:6px; border-radius:8px; border:1px solid rgba(148,163,184,.35); background:transparent; color:var(--fg);" placeholder="（留空=用內建範例）" />
+          <input id="apiBase" class="mono" style="width:280px; padding:6px; border-radius:8px; border:1px solid rgba(148,163,184,.35); background:transparent; color:var(--fg);" placeholder="（留空=內建範例）" />
         </div>
         <button id="themeToggle" class="btn">切換：<span id="themeLabel">白</span> / 黑</button>
       </div>
     </div>
 
-    <!-- Home（= 模型資訊頁，沿用你原本區塊） -->
+    <!-- Home（模型資訊） -->
     <div id="page-home" class="page show">
       <div class="row" style="margin-top:12px;">
         <div class="card" style="flex:2;">
@@ -120,7 +118,7 @@
       <div class="row">
         <div class="card" style="flex:1;">
           <div class="title">最近 N 次預測回測</div>
-          <div class="muted">資料來源：/data/backtest_sample.json（或你的 API） · N 由資料長度決定</div>
+          <div class="muted">資料來源：/data/backtest_sample.json（或你的 API）</div>
           <div id="cmChart" style="height:320px; margin-top:8px;"></div>
         </div>
         <div class="card" style="flex:1;">
@@ -130,12 +128,78 @@
       </div>
     </div>
 
-    <!-- 幣別頁（單一容器，依分頁切換渲染） -->
+    <!-- 幣別頁：1d K 線 + 圖一 + 圖二 -->
     <div id="page-coin" class="page">
       <div class="row" style="margin-top:12px;">
         <div class="card" style="flex:1;">
           <div class="title"><span id="coinTitle">—</span> · 1d K 線</div>
           <div id="coinChart" style="height:520px;"></div>
+        </div>
+      </div>
+
+      <!-- 圖一 -->
+      <div class="row">
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">開/收盤期貨基差 (年化)</div>
+          <div id="coin-basis" style="height:300px;"></div>
+        </div>
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">基差變化率</div>
+          <div id="coin-basischg" style="height:300px;"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">巨鯨指數 (WHALE)</div>
+          <div id="coin-whale" style="height:280px;"></div>
+        </div>
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">Coinbase 溢價率 (CB_PREM%)</div>
+          <div id="coin-cbprem" style="height:280px;"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">6h / 24h 報酬（log）</div>
+          <div id="coin-returns" style="height:260px;"></div>
+        </div>
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">6h / 24h 對數報酬</div>
+          <div id="coin-logrets" style="height:260px;"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">ATR14 (1d 粒度)</div>
+          <div id="coin-atr" style="height:260px;"></div>
+        </div>
+      </div>
+
+      <!-- 圖二 -->
+      <div class="row">
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">EMA(6/24/56)</div>
+          <div id="coin-ema" style="height:260px;"></div>
+        </div>
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">RSI(14)</div>
+          <div id="coin-rsi" style="height:260px;"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">MACD(12,26,9)</div>
+          <div id="coin-macd" style="height:280px;"></div>
+        </div>
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">KD(9,3,3)</div>
+          <div id="coin-kd" style="height:280px;"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card section-anchor" style="flex:1;">
+          <div class="title">Bollinger(20,2) / BBW(20,2)</div>
+          <div id="coin-boll" style="height:300px;"></div>
         </div>
       </div>
     </div>
@@ -147,7 +211,7 @@
 
   <script src="./app.js"></script>
   <script>
-    // 動態計算 sticky header 高度 → CSS 變數 --header-height
+    // 動態寫入 --header-height，讓錨點不被 sticky 抬頭遮到
     function setScrollOffset() {
       const h = document.getElementById('topHeader')?.offsetHeight || 0;
       document.documentElement.style.setProperty('--header-height', h + 'px');
