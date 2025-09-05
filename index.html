@@ -29,14 +29,14 @@
 
     /* 快速跳轉在抬頭內 + 進位對齊 */
     .quicknav { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
-    .section-anchor { scroll-margin-top: 96px; } /* 預留 sticky header 高度 */
+    .section-anchor { scroll-margin-top: calc(var(--header-height, 0px) + 12px); } /* ★ 用變數自動預留 */
   </style>
 </head>
 <body data-theme="light">
   <div class="container">
 
-    <!-- Sticky Header：左邊標題 + 快速跳轉；右邊 API / SB / 主題切換 -->
-    <div class="header">
+    <!-- Sticky Header：左邊標題 + 快速跳轉；右邊 API / 主題切換 -->
+    <div class="header" id="topHeader"><!-- ★ 加上 id -->
       <div>
         <div class="title">乙太幣 6h 預測 · 專題展示（公開版）</div>
         <div class="muted">此頁可獨立部署（含範例資料）。有線上 API 時，右上角改 API / Supabase 即可。</div>
@@ -193,5 +193,14 @@
   </div>
 
   <script src="./app.js"></script>
+  <script>
+    // 動態計算 sticky header 高度，寫入 CSS 變數 --header-height
+    function setScrollOffset() {
+      const h = document.getElementById('topHeader')?.offsetHeight || 0;
+      document.documentElement.style.setProperty('--header-height', h + 'px');
+    }
+    window.addEventListener('load', setScrollOffset);
+    window.addEventListener('resize', setScrollOffset);
+  </script>
 </body>
 </html>
