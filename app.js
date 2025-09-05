@@ -81,13 +81,31 @@ function transformIndicators(rows) {
 }
 
 async function loadIndicators() {
-  if (!SUPABASE_URL || !SUPABASE_KEY) { state.ind = null; return; }
-  const endpoint = `${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/${IND_TABLE}`
-                 + `?select=${encodeURIComponent(IND_FIELDS.join(","))}&order=ts.asc&limit=1500`;
-  const r = await fetch(endpoint, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
-  if (!r.ok) { console.warn("ind fetch failed", r.status, await r.text()); state.ind = null; return; }
-  const raw = await r.json();
-  state.ind = transformIndicators(raw);
+  try {
+    if (SUPABASE_URL && SUPABASE_KEY) {
+      const endpoint = `${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/${IND_TABLE}`
+                     + `?select=${encodeURIComponent(IND_FIELDS.join(","))}&order=ts.asc&limit=1500`;
+      const r = await fetch(endpoint, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+      if (r.ok) {
+        const raw = await r.json();
+        if (Array.isArray(raw) && raw.length) {
+          state.ind = transformIndicators(raw);
+          console.log("Supabase 指標資料筆數:", raw.length);
+          return;
+        }
+      } else {
+        console.warn("Supabase 請求失敗:", r.status, await r.text());
+      }
+    }
+  } catch (e) {
+    console.warn("Supabase 指標抓取錯誤:", e);
+  }
+
+  // fallback → 用 sample JSON
+  console.log("改用 sample 指標資料");
+  const local = await fetch("./data/history_6h_sample.json").then(r => r.json());
+  // 這裡假設 sample 裡也有對應欄位
+  state.ind = transformIndicators(local.data || []);
 }
 
 // ===== 圖表初始化 =====
