@@ -152,7 +152,7 @@ function renderPriceAndPredict() {
     xAxis: { type:'category', data: categories, axisLabel:{ color: C.muted } },
     yAxis: { scale: true, axisLabel:{ color: C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
     dataZoom: [{ type:'inside' }, { type:'slider', textStyle:{ color: C.muted } }],
-    tooltip: { trigger:'axis', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid },
+    tooltip: tipStyle('axis'),
     series: [
       { type:'candlestick', name:'ETH 6h', data: kdata,
         itemStyle: { color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' },
@@ -171,6 +171,17 @@ function renderPriceAndPredict() {
   }
 }
 
+function isDark() { return document.body.getAttribute('data-theme') === 'dark'; }
+function tipStyle(trigger = 'axis') {
+  return {
+    trigger,
+    textStyle: { color: isDark() ? '#e5e7eb' : '#0f172a' },
+    backgroundColor: isDark() ? 'rgba(30,41,59,.92)' : 'rgba(255,255,255,.95)',
+    borderColor: isDark() ? 'rgba(148,163,184,.25)' : 'rgba(0,0,0,.12)',
+    axisPointer: { type: 'line' }
+  };
+}
+
 // ===== 共用繪圖 util（指標區） =====
 function mount(id){ return echarts.init(document.getElementById(id)); }
 function optBase(x, yname=''){
@@ -182,7 +193,7 @@ function optBase(x, yname=''){
     xAxis:{ type:'category', data:x, boundaryGap:false, axisLabel:{ color:C.muted } },
     yAxis:{ type:'value', name:yname, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
     legend:{ top:0 },
-    tooltip:{ trigger:'axis', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid }
+    tooltip: tipStyle('axis')
   };
 }
 function line(name,data,smooth=true){ return { type:'line', name, data, smooth, showSymbol:false }; }
@@ -288,7 +299,7 @@ function confusionMatrixAndMetrics() {
 
   const C = themeColors();
   state.charts.cm.setOption({
-    tooltip: { position: 'top', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid },
+    tooltip: Object.assign(tipStyle('item'), { position: 'top' }),
     textStyle:{ color: C.fg },
     grid: { left: 80, right: 20, top: 40, bottom: 20 },
     xAxis: { type: 'category', data: ['預測↓ / 真實→','up','down'], show: false },
@@ -348,7 +359,7 @@ function renderImportancesAndFeatures() {
     xAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
     yAxis:{ type:'category', data: impNames, axisLabel:{ color:C.muted } },
     series:[{ type:'bar', data: impVals, name:'重要度', label:{ show:false, color:C.fg } }],
-    tooltip:{ textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid }
+    tooltip: tipStyle('item')
   });
 
   const grid = $("#featGrid");
