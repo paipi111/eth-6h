@@ -61,6 +61,105 @@
       </div>
     </div>
 
+    <!-- 指標快捷：放在標題列右邊（可選） -->
+    <div class="row" style="margin-top:4px;">
+      <div class="card" style="padding:8px;">
+        <div class="muted">快速跳轉：</div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;">
+          <a class="btn" onclick="document.getElementById('sec-basis').scrollIntoView({behavior:'smooth'})">BASIS_O/C</a>
+          <a class="btn" onclick="document.getElementById('sec-basischg').scrollIntoView({behavior:'smooth'})">BASIS 變化率</a>
+          <a class="btn" onclick="document.getElementById('sec-whale').scrollIntoView({behavior:'smooth'})">WHALE</a>
+          <a class="btn" onclick="document.getElementById('sec-cbprem').scrollIntoView({behavior:'smooth'})">CB_PREM%</a>
+          <a class="btn" onclick="document.getElementById('sec-returns').scrollIntoView({behavior:'smooth'})">R6%/R24%</a>
+          <a class="btn" onclick="document.getElementById('sec-logrets').scrollIntoView({behavior:'smooth'})">LR6/LR24</a>
+          <a class="btn" onclick="document.getElementById('sec-atr').scrollIntoView({behavior:'smooth'})">ATR14</a>
+          <a class="btn" onclick="document.getElementById('sec-ema').scrollIntoView({behavior:'smooth'})">EMA(6/24/56)</a>
+          <a class="btn" onclick="document.getElementById('sec-rsi').scrollIntoView({behavior:'smooth'})">RSI(14)</a>
+          <a class="btn" onclick="document.getElementById('sec-macd').scrollIntoView({behavior:'smooth'})">MACD</a>
+          <a class="btn" onclick="document.getElementById('sec-kd').scrollIntoView({behavior:'smooth'})">KD</a>
+          <a class="btn" onclick="document.getElementById('sec-boll').scrollIntoView({behavior:'smooth'})">Boll/BBW</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自製指標（圖一） -->
+    <div class="row">
+      <div class="card" style="flex:1;">
+        <div class="title">開/收盤期貨基差 (年化)</div>
+        <div id="chart-basis" style="height:300px;"></div>
+      </div>
+      <div class="card" style="flex:1;">
+        <div class="title">基差變化率</div>
+        <div id="chart-basischg" style="height:300px;"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card" style="flex:1;">
+        <div class="title">巨鯨指數 (WHALE)</div>
+        <div id="chart-whale" style="height:280px;"></div>
+      </div>
+      <div class="card" style="flex:1;">
+        <div class="title">Coinbase 溢價率 (CB_PREM%)</div>
+        <div id="chart-cbprem" style="height:280px;"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card" style="flex:1;">
+        <div class="title">6h / 24h 報酬率</div>
+        <div id="chart-returns" style="height:260px;"></div>
+      </div>
+      <div class="card" style="flex:1;">
+        <div class="title">6h / 24h 對數報酬</div>
+        <div id="chart-logrets" style="height:260px;"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card" style="flex:1;">
+        <div class="title">ATR14 (6h 粒度)</div>
+        <div id="chart-atr" style="height:260px;"></div>
+      </div>
+    </div>
+
+    <!-- 前端畫圖指標（圖二） -->
+    <div class="row">
+      <div class="card" style="flex:1;">
+        <div class="title">EMA(6/24/56)</div>
+        <div id="chart-ema" style="height:260px;"></div>
+      </div>
+      <div class="card" style="flex:1;">
+        <div class="title">RSI(14)</div>
+        <div id="chart-rsi" style="height:260px;"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card" style="flex:1;">
+        <div class="title">MACD(12,26,9)</div>
+        <div id="chart-macd" style="height:280px;"></div>
+      </div>
+      <div class="card" style="flex:1;">
+        <div class="title">KD(9,3,3)</div>
+        <div id="chart-kd" style="height:280px;"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card" style="flex:1;">
+        <div class="title">Bollinger(20,2) / BBW(20,2)</div>
+        <div id="chart-boll" style="height:300px;"></div>
+      </div>
+    </div>
+
+    <!-- 用於錨點定位（可選） -->
+    <div id="sec-basis"></div><div id="sec-basischg"></div><div id="sec-whale"></div>
+    <div id="sec-cbprem"></div><div id="sec-returns"></div><div id="sec-logrets"></div>
+    <div id="sec-atr"></div><div id="sec-ema"></div><div id="sec-rsi"></div>
+    <div id="sec-macd"></div><div id="sec-kd"></div><div id="sec-boll"></div>
+
+
     <div class="row">
       <div class="card" style="flex:1;">
         <div class="title">模型重要度</div>

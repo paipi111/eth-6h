@@ -48,6 +48,37 @@ async function loadData() {
   }
 }
 
+// ===== 指標資料（Supabase REST） =====
+state.ind = null; // 指標 rows
+
+function isSupabaseBase(url) { return /^https:\/\/[^/]+\.supabase\.co\/?$/.test(url); }
+
+// 你實際的資料表名（例如 btc_6h / eth_6h）
+const IND_TABLE = 'btc_6h';
+const IND_FIELDS = [
+  'ts', // 時間欄位
+  'open_basis','close_basis','open_change','close_change',
+  'whale_index_value','premium_rate',
+  'ret_6h','ret_24h','log_ret_6h','log_ret_24h','atr14',
+  // 圖二技術指標（建議後端算好）
+  'ema6','ema24','ema56',
+  'rsi14',
+  'macd_dif','macd_dea','macd_hist',
+  'k','d','j',
+  'bb_upper','bb_middle','bb_lower','bbw'
+];
+
+async function loadIndicators() {
+  const base = getApiBase();
+  if (!isSupabaseBase(base)) { state.ind = null; return; }
+
+  const url = `${base}/rest/v1/${IND_TABLE}?select=${IND_FIELDS.join(',')}&order=ts.asc&limit=1500`;
+  const r = await fetch(url, { headers: { 'apikey': '<YOUR-ANON-KEY>', 'Authorization': 'Bearer <YOUR-ANON-KEY>' }});
+  if (!r.ok) { console.warn('ind fetch failed', r.status); state.ind = null; return; }
+  state.ind = await r.json(); // array of rows
+}
+
+
 function ensureCharts() {
   if (!state.charts.price) {
     state.charts.price = echarts.init(document.getElementById('chart'));
@@ -109,6 +140,21 @@ function renderPriceAndPredict() {
   }
 }
 
+function mount(id){ return echarts.init(document.getElementById(id)); }
+function optBase(x, yname=''){ 
+  const C = themeColors();
+  return {
+    backgroundColor:'transparent',
+    textStyle:{ color:C.fg },
+    grid:{ left:50, right:20, top:10, bottom:40 },
+    xAxis:{ type:'category', data:x, boundaryGap:false, axisLabel:{ color:C.muted } },
+    yAxis:{ type:'value', name:yname, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    legend:{ top:0 },
+    tooltip:{ trigger:'axis', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid }
+  };
+}
+function line(name,data,smooth=true){ return { type:'line', name, data, smooth, showSymbol:false }; }
+
 function renderImportancesAndFeatures() {
   const pred = state.predict || {};
   const imp = (pred.importances || []).slice().sort((a,b)=>b[1]-a[1]);
@@ -144,6 +190,109 @@ function renderImportancesAndFeatures() {
     JSON.stringify(m.hyperparams || {}, null, 2)
   ].join('\n');
   $("#modelInfo").textContent = txt;
+}
+
+function getInd(){ return Array.isArray(state.ind) ? state.ind : []; }
+function X(){ return getInd().map(r => String(r.ts).slice(0,16).replace('T',' ')); }
+
+function render_BASIS(){ const x=X(), rows=getInd();
+  mount('chart-basis').setOption(Object.assign(optBase(x,'%'),{
+    series:[
+      line('BASIS_O', rows.map(r=>r.open_basis)),
+      line('BASIS_C', rows.map(r=>r.close_basis)),
+    ]
+  }));
+}
+function render_BASIS_CHG(){ const x=X(), rows=getInd();
+  mount('chart-basischg').setOption(Object.assign(optBase(x,'%'),{
+    series:[
+      line('BASIS_O_CHG%', rows.map(r=>r.open_change)),
+      line('BASIS_C_CHG%', rows.map(r=>r.close_change)),
+    ]
+  }));
+}
+function render_WHALE(){ const x=X(), rows=getInd();
+  mount('chart-whale').setOption(Object.assign(optBase(x,''),{
+    series:[ line('WHALE', rows.map(r=>r.whale_index_value)) ]
+  }));
+}
+function render_CBPREM(){ const x=X(), rows=getInd();
+  mount('chart-cbprem').setOption(Object.assign(optBase(x,'%'),{
+    series:[ line('CB_PREM%', rows.map(r=>r.premium_rate), false) ]
+  }));
+}
+function render_RET(){ const x=X(), rows=getInd();
+  mount('chart-returns').setOption(Object.assign(optBase(x,'%'),{
+    series:[
+      line('R6%', rows.map(r=>r.ret_6h)),
+      line('R24%', rows.map(r=>r.ret_24h)),
+    ]
+  }));
+}
+function render_LOGRET(){ const x=X(), rows=getInd();
+  mount('chart-logrets').setOption(Object.assign(optBase(x,''),{
+    series:[
+      line('LR6', rows.map(r=>r.log_ret_6h)),
+      line('LR24', rows.map(r=>r.log_ret_24h)),
+    ]
+  }));
+}
+function render_ATR(){ const x=X(), rows=getInd();
+  mount('chart-atr').setOption(Object.assign(optBase(x,''),{
+    series:[ line('ATR14', rows.map(r=>r.atr14)) ]
+  }));
+}
+function render_EMA(){ const x=X(), rows=getInd();
+  mount('chart-ema').setOption(Object.assign(optBase(x,''),{
+    series:[
+      line('EMA6', rows.map(r=>r.ema6)),
+      line('EMA24', rows.map(r=>r.ema24)),
+      line('EMA56', rows.map(r=>r.ema56)),
+    ]
+  }));
+}
+function render_RSI(){ const x=X(), rows=getInd();
+  const o = optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
+  mount('chart-rsi').setOption(Object.assign(o,{
+    series:[ line('RSI14', rows.map(r=>r.rsi14)) ]
+  }));
+}
+function render_MACD(){ const x=X(), rows=getInd();
+  mount('chart-macd').setOption(Object.assign(optBase(x,''),{
+    series:[
+      line('DIF', rows.map(r=>r.macd_dif)),
+      line('DEA', rows.map(r=>r.macd_dea)),
+      { type:'bar', name:'Hist', data: rows.map(r=>r.macd_hist), barWidth: 2 }
+    ]
+  }));
+}
+function render_KD(){ const x=X(), rows=getInd();
+  const o = optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
+  mount('chart-kd').setOption(Object.assign(o,{
+    series:[
+      line('K', rows.map(r=>r.k)),
+      line('D', rows.map(r=>r.d)),
+      line('J', rows.map(r=>r.j)),
+    ]
+  }));
+}
+function render_BOLL(){ const x=X(), rows=getInd();
+  mount('chart-boll').setOption(Object.assign(optBase(x,''),{
+    series:[
+      line('BB Upper', rows.map(r=>r.bb_upper)),
+      line('BB Middle', rows.map(r=>r.bb_middle)),
+      line('BB Lower', rows.map(r=>r.bb_lower)),
+      line('BBW(20,2)', rows.map(r=>r.bbw)),
+    ]
+  }));
+}
+
+// 一鍵渲染
+function renderAllIndicators(){
+  if (!getInd().length) return; // 沒填 Supabase 就略過
+  render_BASIS(); render_BASIS_CHG(); render_WHALE(); render_CBPREM();
+  render_RET(); render_LOGRET(); render_ATR();
+  render_EMA(); render_RSI(); render_MACD(); render_KD(); render_BOLL();
 }
 
 function confusionMatrixAndMetrics() {
@@ -203,10 +352,12 @@ async function main() {
     $("#tgButton").href = `https://t.me/${bot}`;
   }
   await loadData();
+  await loadIndicators();   // 新增：有 Supabase Base 才會生效
   ensureCharts();
   renderPriceAndPredict();
   renderImportancesAndFeatures();
   confusionMatrixAndMetrics();
+  renderAllIndicators();    // 新增：畫指標
 }
 
 $("#refreshBtn").addEventListener('click', main);
