@@ -7,8 +7,18 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <style>
-    :root { --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; }
-    [data-theme="dark"] { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; }
+    :root {
+      --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb;
+      /* tooltip：白主題 → 白底黑字 */
+      --tooltip-bg: rgba(255,255,255,.95);
+      --tooltip-fg: #0f172a;
+    }
+    [data-theme="dark"] {
+      --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa;
+      /* tooltip：黑主題 → 黑底白字 */
+      --tooltip-bg: rgba(30,41,59,.92);
+      --tooltip-fg: #e5e7eb;
+    }
     html, body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial; }
     .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
@@ -27,16 +37,16 @@
     table.metrics { width:100%; border-collapse: collapse; }
     table.metrics th, table.metrics td { padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,.25); text-align:left; }
 
-    /* 快速跳轉在抬頭內 + 進位對齊 */
+    /* 快速跳轉在抬頭內 + 使用變數預留 sticky header 高度 */
     .quicknav { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
-    .section-anchor { scroll-margin-top: calc(var(--header-height, 0px) + 12px); } /* ★ 用變數自動預留 */
+    .section-anchor { scroll-margin-top: calc(var(--header-height, 0px) + 12px); }
   </style>
 </head>
 <body data-theme="light">
   <div class="container">
 
     <!-- Sticky Header：左邊標題 + 快速跳轉；右邊 API / 主題切換 -->
-    <div class="header" id="topHeader"><!-- ★ 加上 id -->
+    <div class="header" id="topHeader">
       <div>
         <div class="title">乙太幣 6h 預測 · 專題展示（公開版）</div>
         <div class="muted">此頁可獨立部署（含範例資料）。有線上 API 時，右上角改 API / Supabase 即可。</div>
@@ -194,7 +204,7 @@
 
   <script src="./app.js"></script>
   <script>
-    // 動態計算 sticky header 高度，寫入 CSS 變數 --header-height
+    // 動態計算 sticky header 高度 → CSS 變數 --header-height
     function setScrollOffset() {
       const h = document.getElementById('topHeader')?.offsetHeight || 0;
       document.documentElement.style.setProperty('--header-height', h + 'px');

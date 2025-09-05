@@ -1,7 +1,7 @@
 // === Supabase 設定（請只放 anon key） ===
-const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";   // ← 換成你的專案 URL
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU";                               // ← 請換 anon key（不要用 sb_secret）
-const IND_TABLE = "lake";  // ← 你的實際表/檢視名稱
+const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";   // ← 換成你的
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU";                       // ← 換成你的 anon key（不要用 service key）
+const IND_TABLE = "lake";  // ← 你的表 / 檢視
 const IND_FIELDS = [
   "ts",
   "open_basis","close_basis","open_change","close_change",
@@ -16,19 +16,37 @@ const IND_FIELDS = [
 
 const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(window.location.search);
-
 const state = { history:null, predict:null, backtest:null, charts:{}, ind:null };
 
 // 讀取 CSS 變數
 const getVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim() || "#e5e7eb";
 function themeColors() {
-  return { fg:getVar('--fg'), muted:getVar('--muted'), accent:getVar('--accent'), grid:'rgba(148,163,184,.2)' };
+  return {
+    fg: getVar('--fg'),
+    muted: getVar('--muted'),
+    accent: getVar('--accent'),
+    grid: 'rgba(148,163,184,.2)',
+    // tooltip 顏色由 CSS 變數控制，會跟主題自動改
+    tbg: getVar('--tooltip-bg'),
+    tfg: getVar('--tooltip-fg'),
+  };
+}
+// 一致的 tooltip 設定
+function tipStyle(trigger='axis', extra={}) {
+  const C = themeColors();
+  return Object.assign({
+    trigger,
+    textStyle:{ color: C.tfg },
+    backgroundColor: C.tbg,
+    borderColor: C.grid,
+    axisPointer:{ type:'line' }
+  }, extra);
 }
 
-// 讀 API Base（你原本的行為）
+// 讀 API Base（留空→使用 sample）
 function getApiBase() {
   const val = $("#apiBase") ? $("#apiBase").value.trim() : "";
-  return val || ""; // 空的時候用範例資料
+  return val || "";
 }
 
 function fmtPct(x) { return (x>0?"+":"") + x.toFixed(2) + "%"; }
@@ -40,7 +58,7 @@ async function fetchJson(url) {
   return await r.json();
 }
 
-// ===== 讀主資料（歷史 / 預測 / 回測） =====
+// ===== 歷史 / 預測 / 回測 =====
 async function loadData() {
   const base = getApiBase();
   if (base) {
@@ -60,12 +78,9 @@ async function loadData() {
   }
 }
 
-// ===== 指標資料（Supabase REST） =====
-// 轉換：把能用 log 的欄位轉成 log return
+// ===== 指標（Supabase REST） =====
 function toLogFromPct(pct) {
-  // pct 是百分比（例如 1.23 代表 1.23%）
   const r = Number(pct) / 100;
-  // 防止極端數值（-100% 以下或 NaN）
   if (!isFinite(r) || r <= -0.999999999) return NaN;
   return Math.log(1 + r);
 }
@@ -73,7 +88,6 @@ function transformIndicators(rows) {
   if (!Array.isArray(rows)) return [];
   return rows.map(r => {
     const o = { ...r };
-    // 若後端已給 log_ret_6h/24h 就用原本的；否則由 ret_* 推導
     if (o.log_ret_6h == null && o.ret_6h != null)  o.log_ret_6h  = toLogFromPct(o.ret_6h);
     if (o.log_ret_24h == null && o.ret_24h != null) o.log_ret_24h = toLogFromPct(o.ret_24h);
     return o;
@@ -100,11 +114,9 @@ async function loadIndicators() {
   } catch (e) {
     console.warn("Supabase 指標抓取錯誤:", e);
   }
-
-  // fallback → 用 sample JSON
+  // fallback → 沒抓到就用 sample（若 sample 無這些欄位則圖會留白）
   console.log("改用 sample 指標資料");
   const local = await fetch("./data/history_6h_sample.json").then(r => r.json());
-  // 這裡假設 sample 裡也有對應欄位
   state.ind = transformIndicators(local.data || []);
 }
 
@@ -171,17 +183,6 @@ function renderPriceAndPredict() {
   }
 }
 
-function isDark() { return document.body.getAttribute('data-theme') === 'dark'; }
-function tipStyle(trigger = 'axis') {
-  return {
-    trigger,
-    textStyle: { color: isDark() ? '#e5e7eb' : '#0f172a' },
-    backgroundColor: isDark() ? 'rgba(30,41,59,.92)' : 'rgba(255,255,255,.95)',
-    borderColor: isDark() ? 'rgba(148,163,184,.25)' : 'rgba(0,0,0,.12)',
-    axisPointer: { type: 'line' }
-  };
-}
-
 // ===== 共用繪圖 util（指標區） =====
 function mount(id){ return echarts.init(document.getElementById(id)); }
 function optBase(x, yname=''){
@@ -201,7 +202,7 @@ function line(name,data,smooth=true){ return { type:'line', name, data, smooth, 
 function getInd(){ return Array.isArray(state.ind) ? state.ind : []; }
 function X(){ return getInd().map(r => String(r.ts).slice(0,16).replace('T',' ')); }
 
-// ===== 13 張指標圖 =====
+// ===== 指標圖 =====
 function render_BASIS(){ const x=X(), rows=getInd();
   mount('chart-basis').setOption(Object.assign(optBase(x,'%'),{
     series:[ line('BASIS_O', rows.map(r=>r.open_basis)), line('BASIS_C', rows.map(r=>r.close_basis)) ]
@@ -222,21 +223,15 @@ function render_CBPREM(){ const x=X(), rows=getInd();
     series:[ line('CB_PREM%', rows.map(r=>r.premium_rate), false) ]
   }));
 }
-// ★ 改為畫「對數報酬」
+// 6h/24h 報酬 → 使用「對數報酬」
 function render_RET(){ const x=X(), rows=getInd();
   mount('chart-returns').setOption(Object.assign(optBase(x,'log'),{
-    series:[
-      line('log R6', rows.map(r=>r.log_ret_6h)),
-      line('log R24', rows.map(r=>r.log_ret_24h)),
-    ]
+    series:[ line('log R6', rows.map(r=>r.log_ret_6h)), line('log R24', rows.map(r=>r.log_ret_24h)) ]
   }));
 }
 function render_LOGRET(){ const x=X(), rows=getInd();
   mount('chart-logrets').setOption(Object.assign(optBase(x,'log'),{
-    series:[
-      line('LR6', rows.map(r=>r.log_ret_6h)),
-      line('LR24', rows.map(r=>r.log_ret_24h)),
-    ]
+    series:[ line('LR6', rows.map(r=>r.log_ret_6h)), line('LR24', rows.map(r=>r.log_ret_24h)) ]
   }));
 }
 function render_ATR(){ const x=X(), rows=getInd();
@@ -273,13 +268,13 @@ function render_BOLL(){ const x=X(), rows=getInd();
 }
 
 function renderAllIndicators(){
-  if (!getInd().length) return; // 沒填 Supabase 就略過
+  if (!getInd().length) return;
   render_BASIS(); render_BASIS_CHG(); render_WHALE(); render_CBPREM();
   render_RET(); render_LOGRET(); render_ATR();
   render_EMA(); render_RSI(); render_MACD(); render_KD(); render_BOLL();
 }
 
-// ===== 混淆矩陣與指標 =====
+// ===== 回測（混淆矩陣） =====
 function confusionMatrixAndMetrics() {
   const rows = (state.backtest?.data || []);
   const N = rows.length;
@@ -287,10 +282,7 @@ function confusionMatrixAndMetrics() {
   rows.forEach(r => {
     const p = (r.pred_dir === 'up');
     const a = (r.actual_dir === 'up');
-    if (p && a) TP++;
-    else if (!p && !a) TN++;
-    else if (p && !a) FP++;
-    else if (!p && a) FN++;
+    if (p && a) TP++; else if (!p && !a) TN++; else if (p && !a) FP++; else if (!p && a) FN++;
   });
   const acc = N ? (TP+TN)/N : 0;
   const prec = (TP+FP) ? TP/(TP+FP) : 0;
@@ -299,26 +291,18 @@ function confusionMatrixAndMetrics() {
 
   const C = themeColors();
   state.charts.cm.setOption({
-    tooltip: Object.assign(tipStyle('item'), { position: 'top' }),
+    tooltip: tipStyle('item', { position:'top' }),
     textStyle:{ color: C.fg },
     grid: { left: 80, right: 20, top: 40, bottom: 20 },
     xAxis: { type: 'category', data: ['預測↓ / 真實→','up','down'], show: false },
     yAxis: { type: 'category', data: ['up','down'], axisLabel:{ color: C.muted }},
     visualMap: { min: 0, max: Math.max(1, TP+TN+FP+FN), calculable: false, orient: 'horizontal', left: 'center', bottom: 0,
                  textStyle:{ color: C.muted } },
-    series: [{
-      name: 'Confusion',
-      type: 'heatmap',
-      data: [
-        [1,0,TP],[2,0,FP],
-        [1,1,FN],[2,1,TN]
-      ],
-      label: { show: true, color: C.fg }
-    }]
+    series: [{ name:'Confusion', type:'heatmap',
+      data: [[1,0,TP],[2,0,FP],[1,1,FN],[2,1,TN]], label:{ show:true, color:C.fg } }]
   });
 
-  const tbl = $("#btMetrics");
-  tbl.innerHTML = `
+  $("#btMetrics").innerHTML = `
     <tr><th>樣本數 N</th><td class="mono">${N}</td></tr>
     <tr><th>Accuracy</th><td class="mono">${(acc*100).toFixed(1)}%</td></tr>
     <tr><th>Precision (上漲)</th><td class="mono">${(prec*100).toFixed(1)}%</td></tr>
@@ -334,10 +318,10 @@ async function main() {
     $("#themeLabel").textContent = '黑';
   }
   const bot = params.get('bot');
-  if (bot) { $("#tgButton").href = `https://t.me/${bot}`; }
+  if (bot) $("#tgButton").href = `https://t.me/${bot}`;
 
   await loadData();
-  await loadIndicators(); // 有 Supabase 設定才會抓
+  await loadIndicators();
   ensureCharts();
   renderPriceAndPredict();
   renderImportancesAndFeatures();
@@ -345,7 +329,7 @@ async function main() {
   renderAllIndicators();
 }
 
-// 模型重要度/特徵（原本就有）
+// 模型重要度 / 最新指標（原本就有）
 function renderImportancesAndFeatures() {
   const pred = state.predict || {};
   const imp = (pred.importances || []).slice().sort((a,b)=>b[1]-a[1]);
@@ -383,7 +367,7 @@ function renderImportancesAndFeatures() {
   $("#modelInfo").textContent = txt;
 }
 
-// 綁定：主題切換（保留原本刷新序列）
+// 主題切換
 $("#themeToggle").addEventListener('click', () => {
   const now = document.body.getAttribute('data-theme');
   const next = now === 'light' ? 'dark' : 'light';
@@ -392,6 +376,7 @@ $("#themeToggle").addEventListener('click', () => {
   renderPriceAndPredict();
   renderImportancesAndFeatures();
   confusionMatrixAndMetrics();
+  if (typeof setScrollOffset === 'function') setScrollOffset(); // sticky header 高度重算
 });
 
 // 初始化
