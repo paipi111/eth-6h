@@ -1,275 +1,224 @@
-//////////////////////////
-// 基本設定
-//////////////////////////
-const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";
-const SUPABASE_ANON_KEY = "sb_secret_xGd3-DRXbCmz97AP8Keq7g_bk3QPwz9";
-const TABLE_NAME = "eth_6h";     // ← 改成你的表
-const TS_FIELD = "ts";           // ← 改成你的時間欄位（ISO字串或毫秒/秒）
-const ROW_LIMIT = 1500;          // 拉回的資料筆數（可調）
+const $ = (sel) => document.querySelector(sel);
+const params = new URLSearchParams(window.location.search);
 
-// 建立 Supabase client（CDN 版本）
-const supabase = supabase_js.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); // :contentReference[oaicite:1]{index=1}
+const state = { history:null, predict:null, backtest:null, charts:{} };
 
-// 工具：平滑捲動
-document.querySelectorAll('.toolbar .btn[data-target]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const el = document.querySelector(btn.dataset.target);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); // :contentReference[oaicite:2]{index=2}
-  });
-});
-
-// 主題切換
-document.getElementById('themeBtn').addEventListener('click', () => {
-  const html = document.documentElement;
-  html.dataset.theme = html.dataset.theme === 'light' ? 'dark' : 'light';
-});
-
-// 取圖表節點 → echarts instance
-function mountChart(id) {
-  const dom = document.getElementById(id);
-  return echarts.init(dom, null, { renderer: 'canvas' });
-}
-
-// 封裝查詢：一次抓多欄，時間升序
-async function fetchSeries(fields) {
-  const columns = [TS_FIELD, ...fields];
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select(columns.join(','))
-    .order(TS_FIELD, { ascending: true })
-    .limit(ROW_LIMIT);
-
-  if (error) { console.error(error); throw error; }
-
-  // x 軸時間字串
-  const x = data.map(d => {
-    const v = d[TS_FIELD];
-    if (typeof v === 'number') { // epoch
-      return new Date(v * (v < 2e10 ? 1000 : 1)).toISOString().slice(0, 16).replace('T',' ');
-    }
-    return String(v).slice(0, 16).replace('T',' ');
-  });
-
-  // 各欄位的 series 值
-  const seriesMap = {};
-  for (const f of fields) seriesMap[f] = data.map(d => d[f]);
-
-  return { x, seriesMap };
-}
-
-// 共用樣式
-function line(name, data, smooth=true, area=false) {
+// 讀取 CSS 變數
+const getVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim() || "#e5e7eb";
+function themeColors() {
   return {
-    type: 'line',
-    name, data, smooth,
-    showSymbol: false,
-    emphasis: { focus: 'series' },
-    ...(area ? { areaStyle: {} } : {})
+    fg: getVar('--fg'),
+    muted: getVar('--muted'),
+    accent: getVar('--accent'),
+    grid: 'rgba(148,163,184,.2)',
   };
 }
 
-function basicOption(x, yName="%") {
-  return {
-    tooltip: { trigger: 'axis' },
-    grid: { left: 48, right: 16, top: 16, bottom: 32 },
-    xAxis: { type: 'category', data: x, boundaryGap: false, axisLabel: { color: '#94a3b8' } },
-    yAxis: { type: 'value', name: yName, axisLabel: { color: '#94a3b8' }, splitLine: { show: true } },
-    legend: { top: 0 },
-  };
+function getApiBase() {
+  const val = $("#apiBase") ? $("#apiBase").value.trim() : "";
+  return val || ""; // 空的時候用範例資料
 }
 
-//////////////////////////
-// 繪圖（依你的欄位）
-//////////////////////////
+function fmtPct(x) { return (x>0?"+":"") + x.toFixed(2) + "%"; }
+function fmtTs(ts) { try { return new Date(ts).toLocaleString(); } catch { return ts; } }
 
-// 1) Overview（可接價格或你原本主圖）
-async function renderOverview() {
-  const chart = mountChart('chart-overview');
-  // 若你有 close 價與 EMA，可一起畫；沒有就先畫空架構
-  try {
-    const FIELDS = ['close', 'ema6', 'ema24', 'ema56'];
-    const { x, seriesMap } = await fetchSeries(FIELDS);
-    const opt = basicOption(x, null);
-    opt.yAxis.name = '';
-    opt.series = [
-      line('Close', seriesMap['close'], true),
-      line('EMA6', seriesMap['ema6'], true),
-      line('EMA24', seriesMap['ema24'], true),
-      line('EMA56', seriesMap['ema56'], true),
-    ];
-    chart.setOption(opt, true);
-  } catch (e) {
-    chart.setOption({ title: { text: '主圖掛載點（等待資料）', left: 'center' } });
+async function fetchJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return await r.json();
+}
+
+async function loadData() {
+  const base = getApiBase();
+  const useApi = !!base;
+  if (useApi) {
+    const [hist, pred, back] = await Promise.all([
+      fetchJson(base + "/api/history?symbol=ETHUSDT&interval=6h&limit=200"),
+      fetchJson(base + "/api/predict?symbol=ETHUSDT&horizon=6h"),
+      fetchJson(base + "/api/backtest?symbol=ETHUSDT&horizon=6h&limit=200")
+    ]);
+    state.history = hist; state.predict = pred; state.backtest = back;
+  } else {
+    const [hist, pred, back] = await Promise.all([
+      fetchJson("./data/history_6h_sample.json"),
+      fetchJson("./data/predict_sample.json"),
+      fetchJson("./data/backtest_sample.json")
+    ]);
+    state.history = hist; state.predict = pred; state.backtest = back;
   }
 }
 
-// 2) BASIS_O / BASIS_C（年化）
-async function renderBasis() {
-  const chart = mountChart('chart-basis');
-  const FIELDS = ['open_basis', 'close_basis']; // → 對應：BASIS_O / BASIS_C
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '%');
-  opt.series = [
-    line('BASIS_O', seriesMap['open_basis']),
-    line('BASIS_C', seriesMap['close_basis']),
-  ];
-  chart.setOption(opt, true);
+function ensureCharts() {
+  if (!state.charts.price) {
+    state.charts.price = echarts.init(document.getElementById('chart'));
+    window.addEventListener('resize', () => state.charts.price.resize());
+  }
+  if (!state.charts.imp) {
+    state.charts.imp = echarts.init(document.getElementById('impChart'));
+    window.addEventListener('resize', () => state.charts.imp.resize());
+  }
+  if (!state.charts.cm) {
+    state.charts.cm = echarts.init(document.getElementById('cmChart'));
+    window.addEventListener('resize', () => state.charts.cm.resize());
+  }
 }
 
-// 3) 基差變化率
-async function renderBasisChg() {
-  const chart = mountChart('chart-basischg');
-  const FIELDS = ['open_change', 'close_change']; // → 對應：BASIS_O_CHG% / BASIS_C_CHG%
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '%');
-  opt.series = [
-    line('BASIS_O_CHG%', seriesMap['open_change']),
-    line('BASIS_C_CHG%', seriesMap['close_change']),
-  ];
-  chart.setOption(opt, true);
+function renderPriceAndPredict() {
+  const hist = state.history?.data || [];
+  const pred = state.predict || null;
+  const categories = hist.map(d => d.t);
+  const kdata = hist.map(d => [d.o, d.c, d.l, d.h]);
+  let markLine = [], markArea = [];
+  if (pred && hist.length) {
+    const nextTs = pred.timestamp;
+    const lastClose = hist[hist.length-1].c;
+    const low = lastClose * (1 + pred.conf_interval_pct[0]/100.0);
+    const high = lastClose * (1 + pred.conf_interval_pct[1]/100.0);
+    markArea = [ [ { xAxis: nextTs, itemStyle:{color:'rgba(37,99,235,0.08)'} }, { xAxis: nextTs } ] ];
+    markLine = [
+      { name:'預測價格', xAxis: nextTs, yAxis: pred.y_pred },
+      { name:'區間低', xAxis: nextTs, yAxis: low },
+      { name:'區間高', xAxis: nextTs, yAxis: high },
+    ];
+  }
+  const C = themeColors();
+  state.charts.price.setOption({
+    backgroundColor: 'transparent',
+    animation: true,
+    textStyle: { color: C.fg },
+    grid: { left: 50, right: 20, top: 10, bottom: 40 },
+    xAxis: { type:'category', data: categories, axisLabel:{ color: C.muted } },
+    yAxis: { scale: true, axisLabel:{ color: C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    dataZoom: [{ type:'inside' }, { type:'slider', textStyle:{ color: C.muted } }],
+    tooltip: { trigger:'axis', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid },
+    series: [
+      { type:'candlestick', name:'ETH 6h', data: kdata,
+        itemStyle: { color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' },
+        markArea: { data: markArea },
+        markLine: { symbol:['none','none'], data: markLine, lineStyle:{ type:'dashed' }, label:{ show:true, color:C.fg } },
+      }
+    ]
+  });
+
+  if (pred) {
+    $("#dir").textContent = (pred.direction === 'up' ? '▲ 上漲' : '▼ 下跌');
+    $("#delta").textContent = fmtPct(pred.delta_pct);
+    $("#conf").textContent = (pred.confidence*100).toFixed(0) + '%';
+    $("#band").textContent = pred.conf_interval_pct.map(p=> (p>0?'+':'')+p.toFixed(2)+'%').join(' ~ ');
+    $("#predTs").textContent = fmtTs(pred.timestamp);
+  }
 }
 
-// 4) 鯨魚指數
-async function renderWhale() {
-  const chart = mountChart('chart-whale');
-  const FIELDS = ['whale_index_value']; // → WHALE
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '');
-  opt.series = [ line('WHALE', seriesMap['whale_index_value'], true, true) ];
-  chart.setOption(opt, true);
+function renderImportancesAndFeatures() {
+  const pred = state.predict || {};
+  const imp = (pred.importances || []).slice().sort((a,b)=>b[1]-a[1]);
+  const impNames = imp.map(x=>x[0]);
+  const impVals = imp.map(x=>x[1]);
+  const C = themeColors();
+  state.charts.imp.setOption({
+    backgroundColor:'transparent',
+    textStyle:{ color: C.fg },
+    grid:{ left: 80, right: 20, top: 20, bottom: 30 },
+    xAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    yAxis:{ type:'category', data: impNames, axisLabel:{ color:C.muted } },
+    series:[{ type:'bar', data: impVals, name:'重要度', label:{ show:false, color:C.fg } }],
+    tooltip:{ textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid }
+  });
+
+  const grid = $("#featGrid");
+  grid.innerHTML = "";
+  const feats = pred.features || {};
+  Object.entries(feats).forEach(([k,v]) => {
+    const el = document.createElement('div');
+    el.innerHTML = `<div class="muted">${k}</div><div class="mono" style="font-size:18px; font-weight:700;">${v}</div>`;
+    grid.appendChild(el);
+  });
+
+  const m = pred.model || {};
+  const txt = [
+    `模型：${m.name || '—'} (${m.version || '—'})`,
+    `訓練區間：${m.trained_window || '—'}`,
+    `目標：${m.target || '—'}，損失：${m.loss || '—'}`,
+    `指標：F1=${m.metrics?.f1 ?? '—'}, Precision=${m.metrics?.precision ?? '—'}, Recall=${m.metrics?.recall ?? '—'}, RMSE=${m.metrics?.rmse ?? '—'}, MAPE=${m.metrics?.mape ?? '—'}`,
+    `超參數：`,
+    JSON.stringify(m.hyperparams || {}, null, 2)
+  ].join('\n');
+  $("#modelInfo").textContent = txt;
 }
 
-// 5) Coinbase 溢價率
-async function renderCBPrem() {
-  const chart = mountChart('chart-cbprem');
-  const FIELDS = ['premium_rate']; // → CB_PREM%
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '%');
-  opt.series = [ line('CB_PREM%', seriesMap['premium_rate'], false) ];
-  chart.setOption(opt, true);
+function confusionMatrixAndMetrics() {
+  const rows = (state.backtest?.data || []);
+  const N = rows.length;
+  let TP=0, TN=0, FP=0, FN=0;
+  rows.forEach(r => {
+    const p = (r.pred_dir === 'up');
+    const a = (r.actual_dir === 'up');
+    if (p && a) TP++;
+    else if (!p && !a) TN++;
+    else if (p && !a) FP++;
+    else if (!p && a) FN++;
+  });
+  const acc = N ? (TP+TN)/N : 0;
+  const prec = (TP+FP) ? TP/(TP+FP) : 0;
+  const rec = (TP+FN) ? TP/(TP+FN) : 0;
+  const f1 = (prec+rec) ? 2*prec*rec/(prec+rec) : 0;
+
+  const C = themeColors();
+  state.charts.cm.setOption({
+    tooltip: { position: 'top', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid },
+    textStyle:{ color: C.fg },
+    grid: { left: 80, right: 20, top: 40, bottom: 20 },
+    xAxis: { type: 'category', data: ['預測↓ / 真實→','up','down'], show: false },
+    yAxis: { type: 'category', data: ['up','down'], axisLabel:{ color: C.muted }},
+    visualMap: { min: 0, max: Math.max(1, TP+TN+FP+FN), calculable: false, orient: 'horizontal', left: 'center', bottom: 0,
+                 textStyle:{ color: C.muted } },
+    series: [{
+      name: 'Confusion',
+      type: 'heatmap',
+      data: [
+        [1,0,TP],[2,0,FP],
+        [1,1,FN],[2,1,TN]
+      ],
+      label: { show: true, color: C.fg }
+    }]
+  });
+
+  const tbl = $("#btMetrics");
+  tbl.innerHTML = `
+    <tr><th>樣本數 N</th><td class="mono">${N}</td></tr>
+    <tr><th>Accuracy</th><td class="mono">${(acc*100).toFixed(1)}%</td></tr>
+    <tr><th>Precision (上漲)</th><td class="mono">${(prec*100).toFixed(1)}%</td></tr>
+    <tr><th>Recall (上漲)</th><td class="mono">${(rec*100).toFixed(1)}%</td></tr>
+    <tr><th>F1</th><td class="mono">${(f1*100).toFixed(1)}%</td></tr>
+  `;
 }
 
-// 6) 報酬率（6h / 24h）
-async function renderReturns() {
-  const chart = mountChart('chart-returns');
-  const FIELDS = ['ret_6h', 'ret_24h']; // → R6%, R24%
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '%');
-  opt.series = [
-    line('R6%', seriesMap['ret_6h']),
-    line('R24%', seriesMap['ret_24h']),
-  ];
-  chart.setOption(opt, true);
+async function main() {
+  if (params.get('theme') === 'dark') {
+    document.body.setAttribute('data-theme', 'dark');
+    $("#themeLabel").textContent = '黑';
+  }
+  const bot = params.get('bot');
+  if (bot) {
+    $("#tgButton").href = `https://t.me/${bot}`;
+  }
+  await loadData();
+  ensureCharts();
+  renderPriceAndPredict();
+  renderImportancesAndFeatures();
+  confusionMatrixAndMetrics();
 }
 
-// 7) 對數報酬（6h / 24h）
-async function renderLogRets() {
-  const chart = mountChart('chart-logrets');
-  const FIELDS = ['log_ret_6h', 'log_ret_24h']; // → LR6, LR24
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '');
-  opt.series = [
-    line('LR6', seriesMap['log_ret_6h']),
-    line('LR24', seriesMap['log_ret_24h']),
-  ];
-  chart.setOption(opt, true);
-}
+$("#refreshBtn").addEventListener('click', main);
 
-// 8) ATR14
-async function renderATR() {
-  const chart = mountChart('chart-atr');
-  const FIELDS = ['atr14']; // → ATR14
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '');
-  opt.series = [ line('ATR14', seriesMap['atr14']) ];
-  chart.setOption(opt, true);
-}
+$("#themeToggle").addEventListener('click', () => {
+  const now = document.body.getAttribute('data-theme');
+  const next = now === 'light' ? 'dark' : 'light';
+  document.body.setAttribute('data-theme', next);
+  $("#themeLabel").textContent = next === 'light' ? '白' : '黑';
+  renderPriceAndPredict();
+  renderImportancesAndFeatures();
+  confusionMatrixAndMetrics();
+});
 
-// 9) EMA(6/24/56)
-async function renderEMA() {
-  const chart = mountChart('chart-ema');
-  const FIELDS = ['ema6','ema24','ema56'];
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '');
-  opt.series = [
-    line('EMA6', seriesMap['ema6']),
-    line('EMA24', seriesMap['ema24']),
-    line('EMA56', seriesMap['ema56']),
-  ];
-  chart.setOption(opt, true);
-}
-
-// 10) RSI(14)
-async function renderRSI() {
-  const chart = mountChart('chart-rsi');
-  const FIELDS = ['rsi14'];
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '');
-  opt.yAxis.min = 0; opt.yAxis.max = 100;
-  opt.series = [ line('RSI14', seriesMap['rsi14']) ];
-  chart.setOption(opt, true);
-}
-
-// 11) MACD(12,26,9)
-async function renderMACD() {
-  const chart = mountChart('chart-macd');
-  const FIELDS = ['macd_dif','macd_dea','macd_hist']; // 後端算好
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '');
-  opt.series = [
-    line('DIF', seriesMap['macd_dif']),
-    line('DEA', seriesMap['macd_dea']),
-    { // 柱狀圖顯示 hist
-      type: 'bar', name: 'Hist', data: seriesMap['macd_hist'],
-      barWidth: 2
-    }
-  ];
-  chart.setOption(opt, true);
-}
-
-// 12) KD(9,3,3)
-async function renderKD() {
-  const chart = mountChart('chart-kd');
-  const FIELDS = ['k','d','j'];
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '');
-  opt.yAxis.min = 0; opt.yAxis.max = 100;
-  opt.series = [
-    line('K', seriesMap['k']),
-    line('D', seriesMap['d']),
-    line('J', seriesMap['j'])
-  ];
-  chart.setOption(opt, true);
-}
-
-// 13) Boll(20,2) / BBW
-async function renderBoll() {
-  const chart = mountChart('chart-boll');
-  const FIELDS = ['bb_upper','bb_middle','bb_lower','bbw'];
-  const { x, seriesMap } = await fetchSeries(FIELDS);
-  const opt = basicOption(x, '');
-  opt.series = [
-    line('BB Upper', seriesMap['bb_upper']),
-    line('BB Middle', seriesMap['bb_middle']),
-    line('BB Lower', seriesMap['bb_lower']),
-    line('BBW(20,2)', seriesMap['bbw'])
-  ];
-  chart.setOption(opt, true);
-}
-
-// 啟動：依序繪製
-(async function bootstrap(){
-  await renderOverview();
-  await renderBasis();
-  await renderBasisChg();
-  await renderWhale();
-  await renderCBPrem();
-  await renderReturns();
-  await renderLogRets();
-  await renderATR();
-  await renderEMA();
-  await renderRSI();
-  await renderMACD();
-  await renderKD();
-  await renderBoll();
-})();
+main();
