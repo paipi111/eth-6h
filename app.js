@@ -1,7 +1,7 @@
 // ====== 基本設定（把 Supabase 寫在程式裡；只放 anon key！） ======
 const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";        // ← 換你的
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU";                            // ← 換你的 anon key
-const PRICES_TABLE  = "prices_daily";                            // 你提供的每日資料表
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU"; // ← 換你的 anon key
+const PRICES_TABLE  = "prices_daily"; // 你提供的每日資料表
 // 指標（圖一）若你的後端也有就改這些名稱；否則本程式會以前端計算的對應值來畫
 const INDICATORS_TABLE = null; // 例如 "indicators_daily"；若為 null 就前端計算
 
@@ -14,7 +14,9 @@ const state = {
   route: "HOME",
   ohlc: [],          // 當前幣種 1d 價格
   ind: {},           // 當前幣種的各指標（前端算）
-  sample: null       // 假資料快取
+  sample: null,      // 假資料快取
+  source: 'sample',  // 'supabase' | 'sample'
+  pred: null         // 模型預測資料（sample 或你的 API 結果）
 };
 
 // 建 tabs
@@ -97,10 +99,23 @@ async function loadSample(){
 async function getOHLC(coin){
   // 1) 先試 Supabase
   const sb = await fetchPricesFromSB(coin);
-  if (Array.isArray(sb) && sb.length) return sb;
+  if (Array.isArray(sb) && sb.length) {
+    state.source = 'supabase';
+    return sb;
+  }
   // 2) fallback：sample
+  state.source = 'sample';
   const sample = await loadSample();
   return (sample[coin] || []).map(r=>({t:r.t, o:r.o, h:r.h, l:r.l, c:r.c, v:r.v}));
+}
+
+// ====== 模型預測（先用 sample，可換成你的 API） ======
+async function loadPredSample(){
+  if (state.pred) return state.pred;
+  // 你可以把這裡改為 fetch(你的API)
+  // 預期格式：{ y_pred: 4253.94, horizon_hours: 6, ci: [0.010, 0.0234], features: {...}, importances:[...], model:{...} }
+  state.pred = await fetchJSON("./data/predict_sample.json").catch(()=> ({}));
+  return state.pred;
 }
 
 // ====== 指標計算（前端） ======
@@ -219,6 +234,7 @@ function optBase(x, yname=''){
   };
 }
 const lineS = (name,data,smooth=true)=>({ type:'line', name, data, smooth, showSymbol:false });
+
 function renderCoinPage(coin, rows){
   // K 線
   const x = rows.map(r=>r.t);
@@ -305,11 +321,58 @@ function renderCoinPage(coin, rows){
       lineS('BBW', state.ind.bbw)
     ]
   }));
+
+  // ===== 右側：y_pred / API 狀態 / 預測摘要 =====
+  (() => {
+    const last = rows.at(-1)?.c ?? NaN;
+
+    // 取得 y_pred：可由 sample 或你的 API
+    let yPred = null;
+    if (state.pred && typeof state.pred.y_pred === 'number') {
+      yPred = state.pred.y_pred;
+    } else if (coin === 'ETH') {
+      yPred = 4253.94; // 題主暫定值
+    }
+
+    // 顯示 y_pred
+    const yEl = document.getElementById('yPred');
+    if (yEl) yEl.textContent = (typeof yPred === 'number') ? yPred.toFixed(2) : '—';
+
+    // API 狀態指示燈
+    const dot = document.getElementById('apiDot');
+    const apiLabel = document.getElementById('apiLabel');
+    if (dot && apiLabel) {
+      if (state.source === 'supabase') {
+        dot.classList.remove('warn'); dot.classList.add('ok');
+        apiLabel.textContent = '連線成功（Supabase）';
+      } else {
+        dot.classList.remove('ok'); dot.classList.add('warn');
+        apiLabel.textContent = '使用假資料（sample）';
+      }
+    }
+
+    // 預測摘要
+    const predBox = document.getElementById('predSummary');
+    if (predBox) {
+      const h = state.pred?.horizon_hours ?? 6;
+      const ci = state.pred?.ci || [0.010, 0.0234]; // 以比例表示（1%~2.34%）
+      let text;
+      if (Number.isFinite(last) && Number.isFinite(yPred)) {
+        const pct = (yPred / last - 1) * 100;
+        const ciLow = (ci[0] * 100).toFixed(2);
+        const ciHigh = (ci[1] * 100).toFixed(2);
+        const dir = pct >= 0 ? '上漲' : '下跌';
+        text = `未來 ${h}h ${dir} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%  (95% 信心區間 ${ciLow}% ~ ${ciHigh}%)`;
+      } else {
+        text = `未來 6h 上漲 +1.67% (95%信心區間 1.0%~2.34%)`;
+      }
+      predBox.textContent = text;
+    }
+  })();
 }
 
-// ====== 首頁：模型資訊（用你舊的 sample 一路畫） ======
+// ====== 首頁：模型資訊（沿用 sample） ======
 async function renderHome(){
-  // 這裡沿用原來的 sample 結構，讓首頁先能動
   const pred = await fetchJSON("./data/predict_sample.json").catch(()=>({}));
   const imp = (pred.importances||[]).slice().sort((a,b)=>b[1]-a[1]);
   const C = themeColors();
@@ -381,6 +444,7 @@ async function enterCoin(coin){
 
   state.ohlc = await getOHLC(coin);
   state.ind  = buildIndicators(state.ohlc);
+  await loadPredSample(); // 先載入預測（之後可改成依幣種打你的 API）
   renderCoinPage(coin, state.ohlc);
 }
 async function enterHome(){
