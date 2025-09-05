@@ -185,4 +185,132 @@ function render_CBPREM(){ const x=X(), rows=getInd();
     series:[ line('CB_PREM%', rows.map(r=>r.premium_rate), false) ]
   }));
 }
-function render_RET(){ const_
+function render_RET(){ const x=X(), rows=getInd();
+  mount('chart-returns').setOption(Object.assign(optBase(x,'%'),{
+    series:[ line('R6%', rows.map(r=>r.ret_6h)), line('R24%', rows.map(r=>r.ret_24h)) ]
+  }));
+}
+function render_LOGRET(){ const x=X(), rows=getInd();
+  mount('chart-logrets').setOption(Object.assign(optBase(x,''),{
+    series:[ line('LR6', rows.map(r=>r.log_ret_6h)), line('LR24', rows.map(r=>r.log_ret_24h)) ]
+  }));
+}
+function render_ATR(){ const x=X(), rows=getInd();
+  mount('chart-atr').setOption(Object.assign(optBase(x,''),{
+    series:[ line('ATR14', rows.map(r=>r.atr14)) ]
+  }));
+}
+function render_EMA(){ const x=X(), rows=getInd();
+  mount('chart-ema').setOption(Object.assign(optBase(x,''),{
+    series:[ line('EMA6', rows.map(r=>r.ema6)), line('EMA24', rows.map(r=>r.ema24)), line('EMA56', rows.map(r=>r.ema56)) ]
+  }));
+}
+function render_RSI(){ const x=X(), rows=getInd();
+  const o = optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
+  mount('chart-rsi').setOption(Object.assign(o,{ series:[ line('RSI14', rows.map(r=>r.rsi14)) ] }));
+}
+function render_MACD(){ const x=X(), rows=getInd();
+  mount('chart-macd').setOption(Object.assign(optBase(x,''),{
+    series:[ line('DIF', rows.map(r=>r.macd_dif)), line('DEA', rows.map(r=>r.macd_dea)),
+             { type:'bar', name:'Hist', data: rows.map(r=>r.macd_hist), barWidth: 2 } ]
+  }));
+}
+function render_KD(){ const x=X(), rows=getInd();
+  const o = optBase(x,''); o.yAxis.min=0; o.yAxis.max=100;
+  mount('chart-kd').setOption(Object.assign(o,{
+    series:[ line('K', rows.map(r=>r.k)), line('D', rows.map(r=>r.d)), line('J', rows.map(r=>r.j)) ]
+  }));
+}
+function render_BOLL(){ const x=X(), rows=getInd();
+  mount('chart-boll').setOption(Object.assign(optBase(x,''),{
+    series:[ line('BB Upper', rows.map(r=>r.bb_upper)), line('BB Middle', rows.map(r=>r.bb_middle)),
+             line('BB Lower', rows.map(r=>r.bb_lower)), line('BBW(20,2)', rows.map(r=>r.bbw)) ]
+  }));
+}
+
+function renderAllIndicators(){
+  if (!getInd().length) return; // 沒填 Supabase 就略過
+  render_BASIS(); render_BASIS_CHG(); render_WHALE(); render_CBPREM();
+  render_RET(); render_LOGRET(); render_ATR();
+  render_EMA(); render_RSI(); render_MACD(); render_KD(); render_BOLL();
+}
+
+// ===== 混淆矩陣與指標 =====
+function confusionMatrixAndMetrics() {
+  const rows = (state.backtest?.data || []);
+  const N = rows.length;
+  let TP=0, TN=0, FP=0, FN=0;
+  rows.forEach(r => {
+    const p = (r.pred_dir === 'up');
+    const a = (r.actual_dir === 'up');
+    if (p && a) TP++;
+    else if (!p && !a) TN++;
+    else if (p && !a) FP++;
+    else if (!p && a) FN++;
+  });
+  const acc = N ? (TP+TN)/N : 0;
+  const prec = (TP+FP) ? TP/(TP+FP) : 0;
+  const rec = (TP+FN) ? TP/(TP+FN) : 0;
+  const f1 = (prec+rec) ? 2*prec*rec/(prec+rec) : 0;
+
+  const C = themeColors();
+  state.charts.cm.setOption({
+    tooltip: { position: 'top', textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid },
+    textStyle:{ color: C.fg },
+    grid: { left: 80, right: 20, top: 40, bottom: 20 },
+    xAxis: { type: 'category', data: ['預測↓ / 真實→','up','down'], show: false },
+    yAxis: { type: 'category', data: ['up','down'], axisLabel:{ color: C.muted }},
+    visualMap: { min: 0, max: Math.max(1, TP+TN+FP+FN), calculable: false, orient: 'horizontal', left: 'center', bottom: 0,
+                 textStyle:{ color: C.muted } },
+    series: [{
+      name: 'Confusion',
+      type: 'heatmap',
+      data: [
+        [1,0,TP],[2,0,FP],
+        [1,1,FN],[2,1,TN]
+      ],
+      label: { show: true, color: C.fg }
+    }]
+  });
+
+  const tbl = $("#btMetrics");
+  tbl.innerHTML = `
+    <tr><th>樣本數 N</th><td class="mono">${N}</td></tr>
+    <tr><th>Accuracy</th><td class="mono">${(acc*100).toFixed(1)}%</td></tr>
+    <tr><th>Precision (上漲)</th><td class="mono">${(prec*100).toFixed(1)}%</td></tr>
+    <tr><th>Recall (上漲)</th><td class="mono">${(rec*100).toFixed(1)}%</td></tr>
+    <tr><th>F1</th><td class="mono">${(f1*100).toFixed(1)}%</td></tr>
+  `;
+}
+
+// ===== 主流程 =====
+async function main() {
+  if (params.get('theme') === 'dark') {
+    document.body.setAttribute('data-theme', 'dark');
+    $("#themeLabel").textContent = '黑';
+  }
+  const bot = params.get('bot');
+  if (bot) { $("#tgButton").href = `https://t.me/${bot}`; }
+
+  await loadData();
+  await loadIndicators(); // 若填了 SB 設定就抓指標
+  ensureCharts();
+  renderPriceAndPredict();
+  renderImportancesAndFeatures();
+  confusionMatrixAndMetrics();
+  renderAllIndicators();
+}
+
+// 綁定：主題切換（保留你原本的樣式刷新序列）
+$("#themeToggle").addEventListener('click', () => {
+  const now = document.body.getAttribute('data-theme');
+  const next = now === 'light' ? 'dark' : 'light';
+  document.body.setAttribute('data-theme', next);
+  $("#themeLabel").textContent = next === 'light' ? '白' : '黑';
+  renderPriceAndPredict();
+  renderImportancesAndFeatures();
+  confusionMatrixAndMetrics();
+});
+
+// 初始化
+main();
