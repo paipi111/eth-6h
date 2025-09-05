@@ -1,3 +1,19 @@
+// === Supabase 設定（在前端常數中設定；請只放 anon key） ===
+const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";   // ← 換成你的
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU";                       // ← 換成你的 anon key（只讀）
+// 指標表與欄位
+const IND_TABLE = "lake";  // 或你實際表名 / view 名稱
+const IND_FIELDS = [
+  "ts",
+  "open_basis","close_basis","open_change","close_change",
+  "whale_index_value","premium_rate",
+  "ret_6h","ret_24h","log_ret_6h","log_ret_24h","atr14",
+  "ema6","ema24","ema56",
+  "rsi14",
+  "macd_dif","macd_dea","macd_hist",
+  "k","d","j",
+  "bb_upper","bb_middle","bb_lower","bbw"
+];
 const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(window.location.search);
 
@@ -57,29 +73,25 @@ async function loadData() {
   }
 }
 
-// ===== 指標資料（Supabase REST） =====
-const IND_TABLE = 'btc_6h'; // 依你的實際表名調整
-const IND_FIELDS = [
-  'ts',
-  'open_basis','close_basis','open_change','close_change',
-  'whale_index_value','premium_rate',
-  'ret_6h','ret_24h','log_ret_6h','log_ret_24h','atr14',
-  'ema6','ema24','ema56',
-  'rsi14',
-  'macd_dif','macd_dea','macd_hist',
-  'k','d','j',
-  'bb_upper','bb_middle','bb_lower','bbw'
-];
-
 async function loadIndicators() {
-  const { url, key } = getSbCfg();
-  if (!url || !key) { state.ind = null; return; } // 沒填就跳過
+  if (!SUPABASE_URL || !SUPABASE_KEY) { state.ind = null; return; }
 
-  const q = IND_FIELDS.join(',');
-  const endpoint = `${url}/rest/v1/${IND_TABLE}?select=${q}&order=ts.asc&limit=1500`;
-  const r = await fetch(endpoint, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
-  if (!r.ok) { console.warn('ind fetch failed', r.status); state.ind = null; return; }
-  state.ind = await r.json(); // array
+  const q = IND_FIELDS.join(",");
+  const endpoint = `${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/${IND_TABLE}`
+                 + `?select=${encodeURIComponent(q)}&order=ts.asc&limit=1500`;
+
+  const r = await fetch(endpoint, {
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`
+    }
+  });
+  if (!r.ok) {
+    console.warn("ind fetch failed", r.status, await r.text());
+    state.ind = null;
+    return;
+  }
+  state.ind = await r.json();
 }
 
 // ===== 圖表初始化 =====
