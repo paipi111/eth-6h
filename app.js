@@ -1,8 +1,7 @@
-// === Supabase 設定（在前端常數中設定；請只放 anon key） ===
-const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";   // ← 換成你的
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU";                       // ← 換成你的 anon key（只讀）
-// 指標表與欄位
-const IND_TABLE = "lake";  // 或你實際表名 / view 名稱
+// === Supabase 設定（請只放 anon key） ===
+const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";   // ← 換成你的專案 URL
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU";                               // ← 請換 anon key（不要用 sb_secret）
+const IND_TABLE = "lake";  // ← 你的實際表/檢視名稱
 const IND_FIELDS = [
   "ts",
   "open_basis","close_basis","open_change","close_change",
@@ -14,6 +13,7 @@ const IND_FIELDS = [
   "k","d","j",
   "bb_upper","bb_middle","bb_lower","bbw"
 ];
+
 const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(window.location.search);
 
@@ -22,25 +22,13 @@ const state = { history:null, predict:null, backtest:null, charts:{}, ind:null }
 // 讀取 CSS 變數
 const getVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim() || "#e5e7eb";
 function themeColors() {
-  return {
-    fg: getVar('--fg'),
-    muted: getVar('--muted'),
-    accent: getVar('--accent'),
-    grid: 'rgba(148,163,184,.2)',
-  };
+  return { fg:getVar('--fg'), muted:getVar('--muted'), accent:getVar('--accent'), grid:'rgba(148,163,184,.2)' };
 }
 
 // 讀 API Base（你原本的行為）
 function getApiBase() {
   const val = $("#apiBase") ? $("#apiBase").value.trim() : "";
   return val || ""; // 空的時候用範例資料
-}
-
-// Supabase 讀取設定（從抬頭右上輸入框）
-function getSbCfg() {
-  const url = ($("#sbUrl")?.value || "").trim().replace(/\/$/, "");
-  const key = ($("#sbKey")?.value || "").trim();
-  return { url, key };
 }
 
 function fmtPct(x) { return (x>0?"+":"") + x.toFixed(2) + "%"; }
@@ -55,8 +43,7 @@ async function fetchJson(url) {
 // ===== 讀主資料（歷史 / 預測 / 回測） =====
 async function loadData() {
   const base = getApiBase();
-  const useApi = !!base;
-  if (useApi) {
+  if (base) {
     const [hist, pred, back] = await Promise.all([
       fetchJson(base + "/api/history?symbol=ETHUSDT&interval=6h&limit=200"),
       fetchJson(base + "/api/predict?symbol=ETHUSDT&horizon=6h"),
@@ -73,25 +60,34 @@ async function loadData() {
   }
 }
 
+// ===== 指標資料（Supabase REST） =====
+// 轉換：把能用 log 的欄位轉成 log return
+function toLogFromPct(pct) {
+  // pct 是百分比（例如 1.23 代表 1.23%）
+  const r = Number(pct) / 100;
+  // 防止極端數值（-100% 以下或 NaN）
+  if (!isFinite(r) || r <= -0.999999999) return NaN;
+  return Math.log(1 + r);
+}
+function transformIndicators(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map(r => {
+    const o = { ...r };
+    // 若後端已給 log_ret_6h/24h 就用原本的；否則由 ret_* 推導
+    if (o.log_ret_6h == null && o.ret_6h != null)  o.log_ret_6h  = toLogFromPct(o.ret_6h);
+    if (o.log_ret_24h == null && o.ret_24h != null) o.log_ret_24h = toLogFromPct(o.ret_24h);
+    return o;
+  });
+}
+
 async function loadIndicators() {
   if (!SUPABASE_URL || !SUPABASE_KEY) { state.ind = null; return; }
-
-  const q = IND_FIELDS.join(",");
   const endpoint = `${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/${IND_TABLE}`
-                 + `?select=${encodeURIComponent(q)}&order=ts.asc&limit=1500`;
-
-  const r = await fetch(endpoint, {
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`
-    }
-  });
-  if (!r.ok) {
-    console.warn("ind fetch failed", r.status, await r.text());
-    state.ind = null;
-    return;
-  }
-  state.ind = await r.json();
+                 + `?select=${encodeURIComponent(IND_FIELDS.join(","))}&order=ts.asc&limit=1500`;
+  const r = await fetch(endpoint, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+  if (!r.ok) { console.warn("ind fetch failed", r.status, await r.text()); state.ind = null; return; }
+  const raw = await r.json();
+  state.ind = transformIndicators(raw);
 }
 
 // ===== 圖表初始化 =====
@@ -197,14 +193,21 @@ function render_CBPREM(){ const x=X(), rows=getInd();
     series:[ line('CB_PREM%', rows.map(r=>r.premium_rate), false) ]
   }));
 }
+// ★ 改為畫「對數報酬」
 function render_RET(){ const x=X(), rows=getInd();
-  mount('chart-returns').setOption(Object.assign(optBase(x,'%'),{
-    series:[ line('R6%', rows.map(r=>r.ret_6h)), line('R24%', rows.map(r=>r.ret_24h)) ]
+  mount('chart-returns').setOption(Object.assign(optBase(x,'log'),{
+    series:[
+      line('log R6', rows.map(r=>r.log_ret_6h)),
+      line('log R24', rows.map(r=>r.log_ret_24h)),
+    ]
   }));
 }
 function render_LOGRET(){ const x=X(), rows=getInd();
-  mount('chart-logrets').setOption(Object.assign(optBase(x,''),{
-    series:[ line('LR6', rows.map(r=>r.log_ret_6h)), line('LR24', rows.map(r=>r.log_ret_24h)) ]
+  mount('chart-logrets').setOption(Object.assign(optBase(x,'log'),{
+    series:[
+      line('LR6', rows.map(r=>r.log_ret_6h)),
+      line('LR24', rows.map(r=>r.log_ret_24h)),
+    ]
   }));
 }
 function render_ATR(){ const x=X(), rows=getInd();
@@ -305,7 +308,7 @@ async function main() {
   if (bot) { $("#tgButton").href = `https://t.me/${bot}`; }
 
   await loadData();
-  await loadIndicators(); // 若填了 SB 設定就抓指標
+  await loadIndicators(); // 有 Supabase 設定才會抓
   ensureCharts();
   renderPriceAndPredict();
   renderImportancesAndFeatures();
@@ -313,7 +316,45 @@ async function main() {
   renderAllIndicators();
 }
 
-// 綁定：主題切換（保留你原本的樣式刷新序列）
+// 模型重要度/特徵（原本就有）
+function renderImportancesAndFeatures() {
+  const pred = state.predict || {};
+  const imp = (pred.importances || []).slice().sort((a,b)=>b[1]-a[1]);
+  const impNames = imp.map(x=>x[0]);
+  const impVals = imp.map(x=>x[1]);
+  const C = themeColors();
+  state.charts.imp.setOption({
+    backgroundColor:'transparent',
+    textStyle:{ color: C.fg },
+    grid:{ left: 80, right: 20, top: 20, bottom: 30 },
+    xAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    yAxis:{ type:'category', data: impNames, axisLabel:{ color:C.muted } },
+    series:[{ type:'bar', data: impVals, name:'重要度', label:{ show:false, color:C.fg } }],
+    tooltip:{ textStyle:{ color:C.fg }, backgroundColor:'rgba(30,41,59,.9)', borderColor:C.grid }
+  });
+
+  const grid = $("#featGrid");
+  grid.innerHTML = "";
+  const feats = pred.features || {};
+  Object.entries(feats).forEach(([k,v]) => {
+    const el = document.createElement('div');
+    el.innerHTML = `<div class="muted">${k}</div><div class="mono" style="font-size:18px; font-weight:700;">${v}</div>`;
+    grid.appendChild(el);
+  });
+
+  const m = pred.model || {};
+  const txt = [
+    `模型：${m.name || '—'} (${m.version || '—'})`,
+    `訓練區間：${m.trained_window || '—'}`,
+    `目標：${m.target || '—'}，損失：${m.loss || '—'}`,
+    `指標：F1=${m.metrics?.f1 ?? '—'}, Precision=${m.metrics?.precision ?? '—'}, Recall=${m.metrics?.recall ?? '—'}, RMSE=${m.metrics?.rmse ?? '—'}, MAPE=${m.metrics?.mape ?? '—'}`,
+    `超參數：`,
+    JSON.stringify(m.hyperparams || {}, null, 2)
+  ].join('\n');
+  $("#modelInfo").textContent = txt;
+}
+
+// 綁定：主題切換（保留原本刷新序列）
 $("#themeToggle").addEventListener('click', () => {
   const now = document.body.getAttribute('data-theme');
   const next = now === 'light' ? 'dark' : 'light';
