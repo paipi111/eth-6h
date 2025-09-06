@@ -12,12 +12,13 @@ const state = {
   theme: "light",
   charts: {},
   route: "HOME",
-  ohlc: [],          // 當前幣種 1d 價格
-  ind: {},           // 當前幣種的各指標（前端算）
-  sample: null,      // 假資料快取
-  source: 'sample',  // 'supabase' | 'sample'
-  pred: null,        // 模型預測資料（sample 或你的 API 結果）
-  pred_source: 'none' // ★ 模型來源：'supabase' | 'sample' | 'none'
+  ohlc: [],
+  ind: {},
+  sample: null,
+  source: 'sample',
+  pred: null,
+  pred_source: 'none',
+  impSort: 'desc'   // ★ 新增：特徵重要度排序（'desc' | 'asc'）
 };
 
 // 建 tabs
@@ -554,9 +555,13 @@ async function renderHome(){
   }
 
   // === 重要度 ===
-  const imp = (pred.importances||[]).slice().sort((a,b)=>b[1]-a[1]);
-  const C = themeColors();
+  const rawImp = (pred.importances||[]).slice();   // e.g. [["rsi14",0.22], ...]
+const C = themeColors();
 
+function drawImp() {
+  const imp = rawImp.slice().sort((a,b)=>
+    state.impSort==='desc' ? b[1]-a[1] : a[1]-b[1]
+  );
   if(!state.charts.imp) state.charts.imp = echarts.init(document.getElementById('impChart'));
   state.charts.imp.setOption({
     backgroundColor:'transparent',
@@ -567,6 +572,19 @@ async function renderHome(){
     series:[{ type:'bar', data: imp.map(x=>x[1]), name:'重要度' }],
     tooltip: tipStyle('item')
   });
+  const btn = document.getElementById('impSortBtn');
+  if (btn) btn.textContent = `排序：${state.impSort==='desc'?'降序':'升序'}`;
+}
+drawImp();
+
+// 綁定按鈕事件（切換排序 → 重畫）
+const impBtn = document.getElementById('impSortBtn');
+if (impBtn) {
+  impBtn.onclick = () => {
+    state.impSort = (state.impSort === 'desc') ? 'asc' : 'desc';
+    drawImp();
+  };
+}
 
   // === 特徵 ===
   const grid = $("#featGrid"); grid.innerHTML="";
