@@ -5,38 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Crypto 1d K線與模型資訊（公開版）</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-  <script>
-  // 多來源載入 ECharts，並把 Promise 掛在 window._echartsReady
-  (function () {
-    const urls = [
-      "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js",
-      "https://unpkg.com/echarts@5/dist/echarts.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js",
-      "./lib/echarts.min.js" // 可選：若你有把檔案放本地
-    ];
-    function load(u){
-      return new Promise((res, rej) => {
-        const s = document.createElement("script");
-        s.src = u; s.async = true; s.onload = res; s.onerror = () => rej(u);
-        document.head.appendChild(s);
-      });
-    }
-    window._echartsReady = (async () => {
-      for (const u of urls) {
-        try { await load(u); if (window.echarts) return; } catch (_) {}
-      }
-      throw new Error("ECharts 讀取失敗（所有來源都無法存取）");
-    })();
-  })();
-</script>
-
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <style>
     :root { --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; --header-h:0px; }
     [data-theme="dark"] { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; }
     html, body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial; }
     .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
-    .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; }
     .card { background: var(--card); border: 1px solid rgba(148,163,184,.2); border-radius: 16px; padding: 16px; flex:1; min-width: 280px; }
     .title { font-size: 20px; font-weight: 700; }
     .muted { color: var(--muted); }
@@ -104,14 +80,11 @@
           </div>
           <div id="impChart" style="height:300px;"></div>
         </div>
-
         <div class="card" style="flex:1;">
           <div class="title">最新特徵</div>
           <div class="grid3" id="featGrid"></div>
         </div>
       </div>
-  <!-- 下面的「資產走勢 vs 模型預測」「模型資訊」「回測」等區塊保留原樣 -->
-
 
       <!-- 新增：資產走勢 vs 模型疊加線 -->
       <div class="row">
@@ -156,23 +129,14 @@
 
     <!-- Route: Coin page -->
     <div id="route-coin" style="display:none;">
-      <div class="row">
+      <div class="row" style="align-items:flex-start;">
         <div class="card" style="flex:2; align-self:flex-start;">
           <div class="title"><span id="coinTitle">—</span> · 1D K 線</div>
           <div id="kChart" style="height:440px;"></div>
-        </div>
-        <div class="card" style="flex:1;">
-          <div class="grid2">
-            <div><div class="muted">最新收盤</div><div id="lastClose" class="mono" style="font-size:26px; font-weight:800;">—</div></div>
-            <div><div class="muted">近 20 日振幅</div><div id="atrInfo" class="mono" style="font-size:22px; font-weight:700;">—</div></div>
-            <div><div class="muted">資料筆數</div><div id="rowsInfo" class="mono" style="font-size:18px; font-weight:700;">—</div></div>
-            <div><div class="muted">期間</div><div id="rangeInfo" class="mono" style="font-size:18px; font-weight:700;">—</div></div>
-          </div>
 
+          <!-- ⬇︎ 搬過來的 y_pred + API 狀態 -->
           <hr class="hr">
-
-          <!-- 模型預測＆API 狀態 -->
-          <div class="grid2">
+          <div class="grid2" id="kMeta">
             <div>
               <div class="muted">模型預測價格 (y_pred)</div>
               <div id="yPred" class="mono" style="font-size:22px; font-weight:700;">—</div>
@@ -183,7 +147,18 @@
                 <span id="apiDot" class="dot"></span>
                 <span id="apiLabel" class="mono">—</span>
               </div>
+              <!-- 模型資料指示燈會由 app.js 自動插入 -->
             </div>
+          </div>
+          <!-- ⬆︎ 搬過來的結束 -->
+        </div>
+
+        <div class="card" style="flex:1;">
+          <div class="grid2">
+            <div><div class="muted">最新收盤</div><div id="lastClose" class="mono" style="font-size:26px; font-weight:800;">—</div></div>
+            <div><div class="muted">近 20 日振幅</div><div id="atrInfo" class="mono" style="font-size:22px; font-weight:700;">—</div></div>
+            <div><div class="muted">資料筆數</div><div id="rowsInfo" class="mono" style="font-size:18px; font-weight:700;">—</div></div>
+            <div><div class="muted">期間</div><div id="rangeInfo" class="mono" style="font-size:18px; font-weight:700;">—</div></div>
           </div>
 
           <hr class="hr">
@@ -196,13 +171,13 @@
             <a class="btn" href="https://discord.gg/your_invite" target="_blank" rel="noopener">Discord</a>
           </div>
 
-          <!-- 預測摘要卡片（已升級：箭頭 + 百分比） -->
+          <!-- 預測摘要卡片 -->
           <div class="subcard" style="margin-top:12px;">
             <div class="title" style="font-size:16px;">預測摘要</div>
             <div id="predSummary" class="mono" style="margin-top:6px; line-height:1.6; font-size:18px; font-weight:700;">—</div>
           </div>
 
-          <!-- 新增：最近 5 次預測 -->
+          <!-- 最近 5 次預測 -->
           <div class="subcard" style="margin-top:12px;">
             <div class="title" style="font-size:16px;">最近 5 次預測</div>
             <table id="lastPreds" class="metrics"></table>
@@ -210,7 +185,7 @@
         </div>
       </div>
 
-      <!-- 圖一 -->
+      <!-- 以下保持原樣（基差、技術指標…） -->
       <div class="row">
         <div class="card section-anchor" id="sec-basis" style="flex:1;">
           <div class="title">開/收盤期貨基差 (年化)</div>
@@ -222,7 +197,6 @@
         </div>
       </div>
 
-      <!-- 圖一（續） -->
       <div class="row">
         <div class="card section-anchor" id="sec-whale" style="flex:1;">
           <div class="title">巨鯨指數 (WHALE)</div>
@@ -234,7 +208,6 @@
         </div>
       </div>
 
-      <!-- 報酬 -->
       <div class="row">
         <div class="card section-anchor" id="sec-returns" style="flex:1;">
           <div class="title">對數報酬（1d / 5d）</div>
@@ -246,7 +219,6 @@
         </div>
       </div>
 
-      <!-- 圖二：技術指標 -->
       <div class="row">
         <div class="card section-anchor" id="sec-atr" style="flex:1;">
           <div class="title">ATR14</div>
@@ -289,9 +261,8 @@
     </div>
   </div>
 
-  <script defer src="./app.js"></script>
+  <script src="./app.js"></script>
   <script>
-    // 設定 sticky header 高度供錨點偏移
     function setHeaderH() {
       const h = document.getElementById('topHeader')?.offsetHeight || 0;
       document.documentElement.style.setProperty('--header-h', h + 'px');
