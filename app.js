@@ -577,14 +577,18 @@ async function renderHome(){
 async function enterCoin(coin){
   $("#route-home").style.display = "none";
   $("#route-coin").style.display = "";
-  // 清空（避免殘影）
   Object.values(state.charts).forEach(ch=> ch && ch.clear());
 
   state.ohlc = await getOHLC(coin);
   state.ind  = buildIndicators(state.ohlc);
-  await loadPredSample(coin); // 先載入預測（之後可改成依幣種打你的 API）
+
+  state.pred = null;            // ← 建議新增
+  state.pred_source = 'none';   // ← 建議新增
+  await loadPredSample(coin);
+
   renderCoinPage(coin, state.ohlc);
 }
+
 async function enterHome(){
   $("#route-coin").style.display = "none";
   $("#route-home").style.display = "";
