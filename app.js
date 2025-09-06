@@ -327,13 +327,15 @@ function optBase(x, yname=''){
   const C = themeColors();
   return {
     backgroundColor:'transparent',
-    textStyle:{ color:C.fg }, legend:{ top:0 },
+    textStyle:{ color:C.fg },
+    legend:{ top:0, textStyle:{ color:C.fg } },   // ← 這裡加
     grid:{ left:50, right:20, top:10, bottom:40 },
     xAxis:{ type:'category', data:x, boundaryGap:false, axisLabel:{ color:C.muted } },
     yAxis:{ type:'value', name:yname, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
     tooltip: tipStyle('axis')
   };
 }
+
 const lineS = (name,data,smooth=true)=>({ type:'line', name, data, smooth, showSymbol:false });
 
 function renderCoinPage(coin, rows){
