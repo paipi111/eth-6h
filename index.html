@@ -72,18 +72,22 @@
 
     <!-- Route: Home（模型資訊） -->
     <div id="route-home" style="display:none;">
-      <div class="card" style="flex:1;">
-        <div style="display:flex; align-items:center; justify-content:space-between;">
-          <div class="title">模型重要度</div>
-          <button id="impSortBtn" class="btn" title="切換升/降序">排序：降序</button>
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div class="title">模型重要度</div>
+            <button id="impSortBtn" class="btn" title="切換升/降序">排序：降序</button>
+          </div>
+          <div id="impChart" style="height:300px;"></div>
         </div>
-        <div id="impChart" style="height:300px;"></div>
-      </div>
+
         <div class="card" style="flex:1;">
           <div class="title">最新特徵</div>
           <div class="grid3" id="featGrid"></div>
         </div>
       </div>
+  <!-- 下面的「資產走勢 vs 模型預測」「模型資訊」「回測」等區塊保留原樣 -->
+
 
       <!-- 新增：資產走勢 vs 模型疊加線 -->
       <div class="row">
