@@ -716,4 +716,15 @@ $("#themeToggle").addEventListener('click', ()=>{
 });
 
 // 啟動
-main();
+(async function boot() {
+  try {
+    if (window._echartsReady) { await window._echartsReady; }
+  } catch (e) {
+    console.error(e);
+    // 可選：給個友善提示
+    document.body.insertAdjacentHTML("afterbegin",
+      '<div style="padding:12px;color:#ef4444;font-weight:700;">ECharts 載入失敗，請檢查網路或防火牆。</div>');
+    return;
+  }
+  main();
+})();

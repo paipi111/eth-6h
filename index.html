@@ -5,7 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Crypto 1d K線與模型資訊（公開版）</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <script>
+  // 多來源載入 ECharts，並把 Promise 掛在 window._echartsReady
+  (function () {
+    const urls = [
+      "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js",
+      "https://unpkg.com/echarts@5/dist/echarts.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js",
+      "./lib/echarts.min.js" // 可選：若你有把檔案放本地
+    ];
+    function load(u){
+      return new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = u; s.async = true; s.onload = res; s.onerror = () => rej(u);
+        document.head.appendChild(s);
+      });
+    }
+    window._echartsReady = (async () => {
+      for (const u of urls) {
+        try { await load(u); if (window.echarts) return; } catch (_) {}
+      }
+      throw new Error("ECharts 讀取失敗（所有來源都無法存取）");
+    })();
+  })();
+</script>
+
   <style>
     :root { --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --card:#f8fafc; --accent:#2563eb; --header-h:0px; }
     [data-theme="dark"] { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#60a5fa; }
@@ -265,7 +289,7 @@
     </div>
   </div>
 
-  <script src="./app.js"></script>
+  <script defer src="./app.js"></script>
   <script>
     // 設定 sticky header 高度供錨點偏移
     function setHeaderH() {
