@@ -147,7 +147,6 @@ async function getOHLC(coin){
 }
 
 // ====== 模型預測（先用 sample，可換成你的 API） ======
-// ====== 模型預測（先用 sample，可換成你的 API） ======
 async function loadPredSample(coin){
   if (state.pred) return state.pred;
 
@@ -342,6 +341,33 @@ function renderCoinPage(coin, rows){
   const k = rows.map(r=>[r.o,r.c,r.l,r.h]);
   if(!state.charts.k) state.charts.k = mount('kChart');
   const C = themeColors();
+
+  // 右側需要的資料
+  const last = rows.at(-1)?.c ?? NaN;
+
+  // 取得 y_pred：可由 sample 或你的 API
+  let yPred = null, ci = [0.010, 0.0234], horizonH = 6;
+  if (state.pred && typeof state.pred.y_pred === 'number') {
+    yPred = state.pred.y_pred;
+    ci = state.pred?.ci || ci;
+    horizonH = state.pred?.horizon_hours ?? 6;
+  } else if (coin === 'ETH') {
+    yPred = 4253.94; // 題主暫定值
+  }
+
+  // 把預測點與區間帶畫在 K 線圖上（markPoint / markArea）
+  // 參考：ECharts markPoint / markArea 官方說明（candlestick 也支援） :contentReference[oaicite:1]{index=1}
+  const mpData = (Number.isFinite(yPred) && x.length)
+    ? [{ name:'y_pred', xAxis:x.at(-1), yAxis:yPred, itemStyle:{color:'#22c55e'} }]
+    : [];
+
+  const maData = (Number.isFinite(last) && ci && ci.length===2)
+    ? [[
+        { xAxis:x.at(-1), yAxis:last*(1+ci[0]) },
+        { xAxis:x.at(-1), yAxis:last*(1+ci[1]) }
+      ]]
+    : [];
+
   state.charts.k.setOption({
     backgroundColor:'transparent', textStyle:{ color:C.fg },
     grid:{ left:50,right:20,top:10,bottom:40 },
@@ -350,7 +376,9 @@ function renderCoinPage(coin, rows){
     dataZoom:[{type:'inside'},{type:'slider', textStyle:{ color:C.muted }}],
     tooltip: tipStyle('axis'),
     series:[{ type:'candlestick', name:`${coin} 1D`, data:k,
-      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' }
+      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' },
+      markPoint:{ symbol:'circle', symbolSize:12, data: mpData },
+      markArea:{ itemStyle:{ color:'rgba(34,197,94,0.15)' }, data: maData }
     }]
   });
 
@@ -423,18 +451,8 @@ function renderCoinPage(coin, rows){
     ]
   }));
 
-  // ===== 右側：y_pred / API 狀態 / 預測摘要 =====
+  // ===== 右側：y_pred / API 狀態 / 預測摘要（升級：箭頭+百分比） =====
   (() => {
-    const last = rows.at(-1)?.c ?? NaN;
-
-    // 取得 y_pred：可由 sample 或你的 API
-    let yPred = null;
-    if (state.pred && typeof state.pred.y_pred === 'number') {
-      yPred = state.pred.y_pred;
-    } else if (coin === 'ETH') {
-      yPred = 4253.94; // 題主暫定值
-    }
-
     // 顯示 y_pred
     const yEl = document.getElementById('yPred');
     if (yEl) yEl.textContent = (typeof yPred === 'number') ? yPred.toFixed(2) : '—';
@@ -452,30 +470,54 @@ function renderCoinPage(coin, rows){
       }
     }
 
-    // 預測摘要
+    // 預測摘要（箭頭 + 百分比 + CI）
     const predBox = document.getElementById('predSummary');
     if (predBox) {
-      const h = state.pred?.horizon_hours ?? 6;
-      const ci = state.pred?.ci || [0.010, 0.0234]; // 以比例表示（1%~2.34%）
-      let text;
+      let html;
       if (Number.isFinite(last) && Number.isFinite(yPred)) {
         const pct = (yPred / last - 1) * 100;
         const ciLow = (ci[0] * 100).toFixed(2);
         const ciHigh = (ci[1] * 100).toFixed(2);
         const dir = pct >= 0 ? '上漲' : '下跌';
-        text = `未來 ${h}h ${dir} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%  (95% 信心區間 ${ciLow}% ~ ${ciHigh}%)`;
+        const arrow = pct >= 0 ? '<span class="arrow up">↑</span>' : '<span class="arrow down">↓</span>';
+        html = `${arrow} 未來 ${horizonH}h ${dir} ${pct>=0?'+':''}${pct.toFixed(2)}%<br>(95% CI ${ciLow}% ~ ${ciHigh}%)`;
       } else {
-        text = `未來 6h 上漲 +1.67% (95%信心區間 1.0%~2.34%)`;
+        html = `<span class="arrow up">↑</span> 未來 6h 上漲 +1.67%<br>(95%信心區間 1.0%~2.34%)`;
       }
-      predBox.textContent = text;
+      predBox.innerHTML = html;
     }
   })();
 
-  // 更新「模型資料」指示燈（若未定義 renderModelStatus 也不會報錯）
+  // 更新「模型資料」指示燈
   if (typeof renderModelStatus === 'function') renderModelStatus();
+
+  // ===== 新增：最近 5 次預測表（使用 backtest_sample.json） =====
+  (async () => {
+    const el = $("#lastPreds");
+    if (!el) return;
+    try {
+      const back = await fetchJSON("./data/backtest_sample.json");
+      const rows = Array.isArray(back.data) ? back.data.slice(-5) : [];
+      if (!rows.length) { el.innerHTML = `<tr><td>—</td></tr>`; return; }
+      const head = `<tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr>`;
+      const body = rows.map(r=>{
+        const t = (r.timestamp||'').slice(5,16).replace('T',' ');
+        const dir = r.pred_dir==='up' ? '↑ up' : '↓ down';
+        const col = r.pred_dir==='up' ? 'style="color:#22c55e;font-weight:700;"' : 'style="color:#ef4444;font-weight:700;"';
+        return `<tr>
+          <td class="mono">${t}</td>
+          <td ${col}>${dir}</td>
+          <td class="mono">${(+r.delta_pred).toFixed(2)}%</td>
+          <td class="mono">${r.actual_dir}</td>
+        </tr>`;
+      }).join("");
+      el.innerHTML = head + body;
+    } catch {
+      el.innerHTML = `<tr><td>—</td></tr>`;
+    }
+  })();
 }
 
-// ====== 首頁：模型資訊（沿用 sample） ======
 // ====== 首頁：模型資訊（優先 Supabase → fallback sample） ======
 async function renderHome(){
   let pred = {};
@@ -511,11 +553,10 @@ async function renderHome(){
     pred = await fetchJSON("./data/predict_sample.json").catch(()=>({}));
   }
 
-  // === 以下沿用原本流程 ===
+  // === 重要度 ===
   const imp = (pred.importances||[]).slice().sort((a,b)=>b[1]-a[1]);
   const C = themeColors();
 
-  // 重要度
   if(!state.charts.imp) state.charts.imp = echarts.init(document.getElementById('impChart'));
   state.charts.imp.setOption({
     backgroundColor:'transparent',
@@ -527,7 +568,7 @@ async function renderHome(){
     tooltip: tipStyle('item')
   });
 
-  // 特徵
+  // === 特徵 ===
   const grid = $("#featGrid"); grid.innerHTML="";
   Object.entries(pred.features||{}).forEach(([k,v])=>{
     const el=document.createElement('div');
@@ -535,7 +576,7 @@ async function renderHome(){
     grid.appendChild(el);
   });
 
-  // 模型文字
+  // === 模型文字 ===
   const m = pred.model||{};
   const txt = [
     `模型：${m.name||'—'} (${m.version||'—'})`,
@@ -546,7 +587,7 @@ async function renderHome(){
   ].join('\n');
   $("#modelInfo").textContent = txt;
 
-  // 混淆矩陣 & 回測（仍用 sample，因為 Supabase 沒有這些）
+  // === 混淆矩陣 & 回測（sample） ===
   const back = await fetchJSON("./data/backtest_sample.json").catch(()=>({}));
   const rows = back.data||[]; let TP=0,TN=0,FP=0,FN=0;
   rows.forEach(r=>{
@@ -561,7 +602,11 @@ async function renderHome(){
     grid:{ left:80, right:20, top:40, bottom:20 },
     xAxis:{ type:'category', data:['預測↓ / 真實→','up','down'], show:false },
     yAxis:{ type:'category', data:['up','down'], axisLabel:{ color:C.muted } },
-    visualMap:{ min:0, max:Math.max(1,TP+TN+FP+FN), calculable:false, orient:'horizontal', left:'center', bottom:0, textStyle:{ color:C.muted } },
+    visualMap:{
+      min:0, max:Math.max(1,TP+TN+FP+FN),
+      orient:'horizontal', left:'center', bottom:0, calculable:false,
+      inRange:{ color:['#fee2e2', '#22c55e'] } // 紅→綠漸層（更直覺） :contentReference[oaicite:2]{index=2}
+    },
     series:[{ type:'heatmap', data:[[1,0,TP],[2,0,FP],[1,1,FN],[2,1,TN]], label:{ show:true, color:C.fg } }]
   });
   $("#btMetrics").innerHTML = `
@@ -571,6 +616,44 @@ async function renderHome(){
     <tr><th>Recall (上漲)</th><td class="mono">${(rec*100).toFixed(1)}%</td></tr>
     <tr><th>F1</th><td class="mono">${(2*prec*rec/(prec+rec||1e-9)*100).toFixed(1)}%</td></tr>
   `;
+
+  // === 新增：圓形指標（Accuracy / F1） ===
+  const f1 = (2*prec*rec/(prec+rec||1e-9));
+  const accPct = (acc*100).toFixed(1) + "%";
+  const f1Pct  = (f1 *100).toFixed(1) + "%";
+  const accEl = $("#accCircle"), f1El=$("#f1Circle");
+  if (accEl) {
+    accEl.textContent = accPct;
+    accEl.classList.remove('ok','warn','bad');
+    accEl.classList.add(acc>=0.7 ? 'ok' : acc>=0.5 ? 'warn' : 'bad');
+  }
+  if (f1El) {
+    f1El.textContent = f1Pct;
+    f1El.classList.remove('ok','warn','bad');
+    f1El.classList.add(f1>=0.7 ? 'ok' : f1>=0.5 ? 'warn' : 'bad');
+  }
+
+  // === 新增：資產走勢 vs 模型預測（累積報酬疊加線） ===
+  // 使用 backtest 的 delta_pred / delta_actual 做累積報酬；時間軸為 backtest timestamps。
+  const bx = rows.map(r=> r.timestamp.slice(0,16).replace('T',' '));
+  const cum = (arr)=>{
+    let v=1; return arr.map(pct=>{ v *= (1 + (+pct)/100); return v; });
+  };
+  const actCum = cum(rows.map(r=> +r.delta_actual));
+  const predCum= cum(rows.map(r=> +r.delta_pred));
+  if(!state.charts.overlay) state.charts.overlay = echarts.init(document.getElementById('overlayChart'));
+  state.charts.overlay.setOption({
+    backgroundColor:'transparent',
+    textStyle:{ color:C.fg }, legend:{ top:0, data:['實際（累積）','模型（累積）'] },
+    grid:{ left:50, right:20, top:30, bottom:40 },
+    xAxis:{ type:'category', data:bx, boundaryGap:false, axisLabel:{ color:C.muted } },
+    yAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    tooltip: tipStyle('axis'),
+    series:[
+      { type:'line', name:'實際（累積）', data:actCum, smooth:true, showSymbol:false },
+      { type:'line', name:'模型（累積）', data:predCum, smooth:true, showSymbol:false }
+    ]
+  });
 }
 
 // ====== 進入分頁 ======
@@ -582,8 +665,8 @@ async function enterCoin(coin){
   state.ohlc = await getOHLC(coin);
   state.ind  = buildIndicators(state.ohlc);
 
-  state.pred = null;            // ← 建議新增
-  state.pred_source = 'none';   // ← 建議新增
+  state.pred = null;
+  state.pred_source = 'none';
   await loadPredSample(coin);
 
   renderCoinPage(coin, state.ohlc);
