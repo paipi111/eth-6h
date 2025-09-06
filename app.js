@@ -97,7 +97,7 @@ async function fetchPricesFromSB(coin) {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${SUPABASE_KEY}`,
           Accept: 'application/json',
-          'Accept-Profile': 'public'   // ← 關鍵！指定使用 public schema，避免 404
+          'Accept-Profile': 'predictor'  // 指定使用 predictor schema（你的新表就在這）
         }
       });
     } catch (e) {
