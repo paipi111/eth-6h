@@ -16,7 +16,8 @@ const state = {
   ind: {},           // 當前幣種的各指標（前端算）
   sample: null,      // 假資料快取
   source: 'sample',  // 'supabase' | 'sample'
-  pred: null         // 模型預測資料（sample 或你的 API 結果）
+  pred: null,        // 模型預測資料（sample 或你的 API 結果）
+  pred_source: 'none' // ★ 模型來源：'supabase' | 'sample' | 'none'
 };
 
 // 建 tabs
@@ -146,6 +147,7 @@ async function getOHLC(coin){
 }
 
 // ====== 模型預測（先用 sample，可換成你的 API） ======
+// ====== 模型預測（先用 sample，可換成你的 API） ======
 async function loadPredSample(coin){
   if (state.pred) return state.pred;
 
@@ -167,6 +169,7 @@ async function loadPredSample(coin){
         ci: [0.01, 0.0234],              // 若你有上下界，可以寫進表裡再取
         model: { name: rows[0].model_tag }
       };
+      state.pred_source = 'supabase';    // ★ 標記來源：Supabase
       return state.pred;
     }
   } catch (e) {
@@ -175,6 +178,7 @@ async function loadPredSample(coin){
 
   // fallback: sample 檔案
   state.pred = await fetchJSON("./data/predict_sample.json").catch(()=> ({}));
+  state.pred_source = Object.keys(state.pred||{}).length ? 'sample' : 'none'; // ★ 標記來源：sample/none
   return state.pred;
 }
 
@@ -278,6 +282,43 @@ function buildIndicators(rows){
     k:K, d:D, j:J, bb_upper:bb_up, bb_middle:bb_mid, bb_lower:bb_low, bbw,
     atr14:atr, log_r1:lr1, log_r5:lr5, log_r7:lr7, log_r30:lr30
   };
+}
+
+// ====== 模型資料狀態指示燈（動態插入，不用改 HTML） ======
+function ensureModelStatusWidget(){
+  // 在「API 狀態」那格下方插入一個新的 badge
+  const apiCell = document.getElementById('apiLabel')?.parentElement?.parentElement;
+  if (!apiCell) return;
+  if (!document.getElementById('modelLabel')) {
+    const wrap = document.createElement('div');
+    wrap.style.marginTop = '8px';
+    wrap.innerHTML = `
+      <div class="muted">模型資料</div>
+      <div class="badge" style="font-size:16px;">
+        <span id="modelDot" class="dot"></span>
+        <span id="modelLabel" class="mono">—</span>
+      </div>`;
+    apiCell.appendChild(wrap);
+  }
+}
+
+function renderModelStatus(){
+  ensureModelStatusWidget();
+  const mdot = document.getElementById('modelDot');
+  const mlabel = document.getElementById('modelLabel');
+  if (!mdot || !mlabel) return;
+
+  mdot.classList.remove('ok','warn');
+  if (state.pred_source === 'supabase') {
+    mdot.classList.add('ok');
+    mlabel.textContent = '已取得（Supabase）';
+  } else if (state.pred_source === 'sample') {
+    mdot.classList.add('warn');
+    mlabel.textContent = '使用假資料（sample）';
+  } else {
+    mdot.classList.add('warn');
+    mlabel.textContent = '未取得';
+  }
 }
 
 // ====== 畫圖 ======
@@ -429,6 +470,9 @@ function renderCoinPage(coin, rows){
       predBox.textContent = text;
     }
   })();
+
+  // 更新「模型資料」指示燈（若未定義 renderModelStatus 也不會報錯）
+  if (typeof renderModelStatus === 'function') renderModelStatus();
 }
 
 // ====== 首頁：模型資訊（沿用 sample） ======
