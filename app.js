@@ -96,8 +96,8 @@ async function fetchPricesFromSB(coin) {
         headers: {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${SUPABASE_KEY}`,
-          // 提高相容性（有些專案開了 RLS profile）
-          // 'Accept-Profile': 'public',
+          Accept: 'application/json',
+          'Accept-Profile': 'public'   // ← 關鍵！指定使用 public schema，避免 404
         }
       });
     } catch (e) {
