@@ -146,10 +146,34 @@ async function getOHLC(coin){
 }
 
 // ====== 模型預測（先用 sample，可換成你的 API） ======
-async function loadPredSample(){
+async function loadPredSample(coin){
   if (state.pred) return state.pred;
-  // 你可以把這裡改為 fetch(你的API)
-  // 預期格式：{ y_pred: 4253.94, horizon_hours: 6, ci: [0.010, 0.0234], features: {...}, importances:[...], model:{...} }
+
+  const base = SUPABASE_URL.replace(/\/$/, '');
+  const url = `${base}/rest/v1/predictions_daily?coin=eq.${coin}&order=dt.desc&limit=1`;
+  try {
+    const rows = await fetchJSON(url, {
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        Accept: 'application/json',
+        'Accept-Profile': 'predictor'   // 你的 schema
+      }
+    });
+    if (rows.length) {
+      state.pred = {
+        y_pred: rows[0].y_dir_prob_up,   // 你可以改成實際數值欄位，例如 y_pred
+        horizon_hours: 24,               // 1d 預測 → 24 小時
+        ci: [0.01, 0.0234],              // 若你有上下界，可以寫進表裡再取
+        model: { name: rows[0].model_tag }
+      };
+      return state.pred;
+    }
+  } catch (e) {
+    console.warn("[pred] Supabase 抓取失敗，改用 sample", e);
+  }
+
+  // fallback: sample 檔案
   state.pred = await fetchJSON("./data/predict_sample.json").catch(()=> ({}));
   return state.pred;
 }
@@ -408,8 +432,42 @@ function renderCoinPage(coin, rows){
 }
 
 // ====== 首頁：模型資訊（沿用 sample） ======
+// ====== 首頁：模型資訊（優先 Supabase → fallback sample） ======
 async function renderHome(){
-  const pred = await fetchJSON("./data/predict_sample.json").catch(()=>({}));
+  let pred = {};
+  const base = SUPABASE_URL.replace(/\/$/, '');
+  const url = `${base}/rest/v1/predictions_daily?coin=eq.ETH&order=dt.desc&limit=1`;
+
+  try {
+    const rows = await fetchJSON(url, {
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        Accept: 'application/json',
+        'Accept-Profile': 'predictor'
+      }
+    });
+    if (rows.length) {
+      // 從 predictions_daily 組成 pred 物件
+      pred = {
+        y_pred: rows[0].y_dir_prob_up,
+        horizon_hours: 24,
+        ci: [0.01, 0.0234],
+        features: { coin: rows[0].coin, dt: rows[0].dt },
+        model: { name: rows[0].model_tag, version: "—" },
+        importances: []
+      };
+    }
+  } catch (e) {
+    console.warn("[home] Supabase 抓取失敗，改用 sample", e);
+  }
+
+  // fallback: sample 檔案
+  if (!Object.keys(pred).length) {
+    pred = await fetchJSON("./data/predict_sample.json").catch(()=>({}));
+  }
+
+  // === 以下沿用原本流程 ===
   const imp = (pred.importances||[]).slice().sort((a,b)=>b[1]-a[1]);
   const C = themeColors();
 
@@ -444,7 +502,7 @@ async function renderHome(){
   ].join('\n');
   $("#modelInfo").textContent = txt;
 
-  // 混淆矩陣（沿用）
+  // 混淆矩陣 & 回測（仍用 sample，因為 Supabase 沒有這些）
   const back = await fetchJSON("./data/backtest_sample.json").catch(()=>({}));
   const rows = back.data||[]; let TP=0,TN=0,FP=0,FN=0;
   rows.forEach(r=>{
@@ -480,7 +538,7 @@ async function enterCoin(coin){
 
   state.ohlc = await getOHLC(coin);
   state.ind  = buildIndicators(state.ohlc);
-  await loadPredSample(); // 先載入預測（之後可改成依幣種打你的 API）
+  await loadPredSample(coin); // 先載入預測（之後可改成依幣種打你的 API）
   renderCoinPage(coin, state.ohlc);
 }
 async function enterHome(){
