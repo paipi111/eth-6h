@@ -601,6 +601,25 @@ function renderCoinPage(coin, rows){
       el.innerHTML = `<tr><td>—</td></tr>`;
     }
   })();
+
+  (() => {
+    const el = document.querySelector("#indTable tbody");
+    if (!el) return;
+    el.innerHTML = "";
+    Object.entries(state.ind || {}).forEach(([k, arr])=>{
+      let val;
+      if (Array.isArray(arr)) {
+        val = arr.length ? arr[arr.length-1] : NaN;
+      } else {
+        val = arr;
+      }
+      const show = (val==null || isNaN(val)) ? "—" : Number(val).toFixed(4);
+      el.innerHTML += `<tr>
+        <td>${k}</td>
+        <td style="text-align:right;">${show}</td>
+      </tr>`;
+    });
+  })();
 }
 
 // ====== 首頁：模型資訊（優先 Supabase → fallback sample） ======
