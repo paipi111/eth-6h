@@ -1,0 +1,37 @@
+{
+  "symbol": "ETHUSDT",
+  "horizon": "6h",
+  "report": {
+    "n_trades": 178,
+    "hit_rate": 0.8523,
+    "vol_hit_rate": 0.0333,
+    "sharpe": 1.42,
+    "sortino": 2.11,
+    "cagr": 0.375,
+    "volatility_ann": 0.26,
+    "max_drawdown": -0.18,
+    "calmar": 2.08,
+    "profit_factor": 1.62,
+    "expectancy": 0.0031,
+    "avg_trade_return": 0.0028,
+    "median_trade_return": 0.0017,
+    "win_rate": 0.538,
+    "loss_rate": 0.462,
+    "avg_win": 0.014,
+    "avg_loss": -0.011,
+    "max_consec_wins": 7,
+    "max_consec_losses": 5,
+    "avg_holding_days": 2.3,
+    "atr_leverage_unit": "1 ATR = 1% 資金",
+    "exposure": 0.41,
+    "turnover": 12.7,
+    "test_days": 89,
+    "n_folds": 6,
+    "oof": {
+      "acc": 0.55,
+      "bacc": 0.52,
+      "f1": 0.49,
+      "auc": 0.57
+    }
+  }
+}

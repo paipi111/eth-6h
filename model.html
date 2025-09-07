@@ -61,6 +61,10 @@
       <div class="muted" style="font-weight:700;">詳細交易日誌</div>
       <table class="tbl mono" id="log"></table>
     </div>
+    <div class="card" style="margin-top:12px;">
+        <div class="muted" style="font-weight:700;">回測報告</div>
+        <table class="tbl mono" id="reportTbl"></table>
+    </div>
 
     <div class="footer">© Model Report</div>
   </div>
@@ -74,6 +78,95 @@
         console.error(e); return {data:[]};
       }
     }
+
+    // --- 讀回測報告（優先 Supabase → 內嵌 report → 獨立檔） ---
+    async function loadBacktestReport() {
+        // 1) 試 Supabase（若你用）
+        try {
+        if (window.SUPABASE_URL && window.SUPABASE_KEY) {
+            const base = SUPABASE_URL.replace(/\/$/, '');
+            // 依你實際表名與查詢條件調整
+            const url = `${base}/rest/v1/backtest_reports?symbol=eq.ETHUSDT&horizon=eq.6h&order=asof.desc&limit=1`;
+            const [row] = await fetch(url, {
+            headers: {
+                apikey: SUPABASE_KEY,
+                Authorization: `Bearer ${SUPABASE_KEY}`,
+                Accept: 'application/json',
+                'Accept-Profile': 'predictor'
+            }
+            }).then(r=>r.json());
+            if (row) return row; // 直接回傳具有同名欄位的物件
+        }
+        } catch (e) { console.warn('[report] Supabase 取數失敗', e); }
+
+        // 2) 試 backtest 檔案中的 report
+        try {
+        const bt = await fetch('./data/backtest_sample.json').then(r=>r.json()); // 你現行檔名
+        if (bt && bt.report) return bt.report; // 方案 1
+        } catch {}
+
+        // 3) 試獨立報告檔（方案 2）
+        try {
+        return await fetch('./data/backtest_report.json').then(r=>r.json());
+        } catch {}
+
+        return null;
+    }
+
+    // --- 格式化小工具 ---
+    const pct = v => (v===null||v===undefined||isNaN(v)) ? '—' : (v*100).toFixed(2)+'%';
+    const num = v => (v===null||v===undefined||isNaN(v)) ? '—' : String(v);
+    const fix = (v,n=4) => (v===null||v===undefined||isNaN(v)) ? '—' : (+v).toFixed(n);
+
+    // --- 繪製回測報告表格 ---
+    function renderReportTable(rep){
+        const el = document.getElementById('reportTbl');
+        if (!el) return;
+        if (!rep) { el.innerHTML = '<tr><td>—</td></tr>'; return; }
+
+        const rows = [
+        ['總交易筆數',            num(rep.n_trades)],
+        ['方向命中率',            pct(rep.hit_rate)],
+        ['波動命中率',            pct(rep.vol_hit_rate)],
+        ['夏普比',               fix(rep.sharpe, 2)],
+        ['Sortino比',            fix(rep.sortino, 2)],
+        ['年化報酬率',            pct(rep.cagr)],
+        ['年化波動',              pct(rep.volatility_ann)],
+        ['最大回撤',              pct(rep.max_drawdown)],
+        ['Calmar比',             fix(rep.calmar, 2)],
+        ['利潤因子',              fix(rep.profit_factor, 2)],
+        ['期望值/每筆',           fix(rep.expectancy, 4)],
+        ['平均每筆報酬',          fix(rep.avg_trade_return, 4)],
+        ['中位每筆報酬',          fix(rep.median_trade_return, 4)],
+        ['勝率',                 pct(rep.win_rate)],
+        ['負率',                 pct(rep.loss_rate)],
+        ['平均單筆盈利',           pct(rep.avg_win)],
+        ['平均單筆虧損',           pct(rep.avg_loss)],
+        ['連續盈利最長',           num(rep.max_consec_wins)],
+        ['連續虧損最長',           num(rep.max_consec_losses)],
+        ['平均持有天數',           fix(rep.avg_holding_days, 2)],
+        ['槓桿單位註記',           rep.atr_leverage_unit || '—'],
+        ['平均曝險',              pct(rep.exposure)],
+        ['週轉率',               fix(rep.turnover, 2)],
+        ['測試天數',              num(rep.test_days)],
+        ['折數（WF）',            num(rep.n_folds)],
+        ['分類評估（OOF）acc',    pct(rep?.oof?.acc)],
+        ['分類評估（OOF）bacc',   pct(rep?.oof?.bacc)],
+        ['分類評估（OOF）f1',     pct(rep?.oof?.f1)],
+        ['分類評估（OOF）auc',    fix(rep?.oof?.auc, 3)]
+        ];
+
+        el.innerHTML = `
+        <tr><th>指標</th><th>數值</th></tr>
+        ${rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('')}
+        `;
+    }
+
+    // --- 在頁面啟動流程中呼叫（放在你既有 IIFE 主程式內） ---
+    (async () => {
+        const report = await loadBacktestReport();
+        renderReportTable(report);
+    })();
 
     function pct(x){ return (x*100).toFixed(2) + '%'; }
 
