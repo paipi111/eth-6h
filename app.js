@@ -149,15 +149,17 @@ function todayUTC() {
 }
 
 async function fetchTodayPrediction(asset='BTC') {
-  const base = `${SB_BASE}/predictor.predictions_daily`;
+  const base = `${SB_BASE}/predictions_daily`;           // 路徑不要帶 schema
   const today = todayUTC();
   // 先試今天
   let q = new URLSearchParams({ coin:`eq.${asset}`, dt:`eq.${today}`, order:'model_tag.asc' });
   let rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r=>r.json());
+  if (!Array.isArray(rows)) { console.error('[pred today] bad resp', rows); rows = []; }
   // 沒有就拿最近一筆
   if (!rows.length) {
     q = new URLSearchParams({ coin:`eq.${asset}`, order:'dt.desc', limit:'1' });
     rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r=>r.json());
+    if (!Array.isArray(rows)) { console.error('[pred latest] bad resp', rows); rows = []; }
   }
   const r = rows[0];
   return r ? { prob_up:+r.prob_up, dir:r.yhat_dir, model:r.model_tag } : null;
@@ -166,7 +168,7 @@ async function fetchTodayPrediction(asset='BTC') {
 // 右側「最近 5 次預測」：直接抓近 5 天
 async function fetchRecentPredictions(asset = 'BTC', n = 5) {
   const q = new URLSearchParams({ coin:`eq.${asset}`, order:'dt.desc', limit:String(n) });
-  const url = `${SB_BASE}/predictor.predictions_daily?${q}`;
+  const url = `${SB_BASE}/predictions_daily?${q}`;
   return fetch(url, { headers: SB_HEADERS }).then(r => r.json());
 }
 
@@ -401,7 +403,7 @@ async function loadPredSample(coin){
   } catch(e){
     console.warn('[pred] fetchTodayPrediction failed', e);
   }
-  state.pred = {}; state.pred_source = 'none';
+  state.pred = {}; state.pred_source = 'none';  // 這樣右側「模型資料」會顯示「未取得」
   return state.pred;
 }
 
