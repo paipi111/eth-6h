@@ -1,293 +1,87 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>模型績效報告（XGBoost）</title>
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-  <style>
-    :root { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#22c55e; }
-    html, body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial; }
-    .container { max-width: 1180px; margin: 0 auto; padding: 18px; }
-    .title { font-size: 28px; font-weight: 800; letter-spacing:.5px; }
-    .muted { color: var(--muted); }
-    .row { display:flex; gap:16px; flex-wrap:wrap; }
-    .card { background: var(--card); border: 1px solid rgba(148,163,184,.20); border-radius: 16px; padding: 16px; flex:1; min-width: 300px; }
-    .kpi { text-align:center; }
-    .kpi .num { font-size: 34px; font-weight: 800; margin-top: 8px; }
-    .grid4 { display:grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap:12px; }
-    .grid3 { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:12px; }
-    table.tbl { width:100%; border-collapse:collapse; }
-    table.tbl th, table.tbl td { padding:8px 10px; border-bottom:1px solid rgba(148,163,184,.25); text-align:left; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:9999px; font-weight:700; }
-    .green { background:rgba(34,197,94,.15); color:#86efac; }
-    .red { background:rgba(239,68,68,.15); color:#fca5a5; }
-    .gray { background:rgba(148,163,184,.15); color:#cbd5e1; }
-    .footer { text-align:center; font-size:12px; margin: 24px auto; color:var(--muted); }
-    /* 右上角 90 天摘要 */
-    #txtSummary { margin-top:6px; line-height:1.4; font-size:13px; }
-    #txtSummary .sep { opacity:.6; margin:0 6px; }
-    /* 原文報告 pre 外觀 */
-    pre.plain { white-space:pre-wrap; margin:8px 0 0; }
-    details summary { cursor:pointer; user-select:none; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>策略組合績效報告</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <div class="container">
-    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
-      <div>
-        <div class="title">XGBoost 策略組合績效報告</div>
-        <div class="muted">本頁所有數據皆來自 90 天文字報告（Signal/Portfolio）。</div>
-      </div>
-      <div style="text-align:right;">
-        <a class="muted" href="./index.html">← 回到主頁</a>
-        <div id="txtSummary" class="mono muted">—</div>
-      </div>
+    <div class="container">
+        <header>
+            <h1>動態門檻策略組合 - 最終績效報告</h1>
+            <p id="simulationPeriod">模擬期間: 讀取中...</p>
+        </header>
+
+        <section class="kpi-grid">
+            <div class="card">
+                <h3>最終權益</h3>
+                <p class="kpi-value" id="finalEquity">$ --</p>
+            </div>
+            <div class="card highlight">
+                <h3>年化報酬 (CAGR)</h3>
+                <p class="kpi-value" id="cagr">--%</p>
+            </div>
+            <div class="card">
+                <h3>最大回撤</h3>
+                <p class="kpi-value" id="maxDrawdown">--%</p>
+            </div>
+            <div class="card">
+                <h3>夏普比率</h3>
+                <p class="kpi-value" id="sharpe">--</p>
+            </div>
+             <div class="card">
+                <h3>勝率 (Win Rate)</h3>
+                <p class="kpi-value" id="winRate">--%</p>
+            </div>
+            <div class="card">
+                <h3>利潤因子</h3>
+                <p class="kpi-value" id="profitFactor">--</p>
+            </div>
+        </section>
+
+        <section class="chart-grid">
+            <div class="card chart-card">
+                <div class="filter-container">
+                    <button class="filter-btn active" id="filter-overall">總體 (Overall)</button>
+                    <button class="filter-btn" id="filter-btc">BTC</button>
+                    <button class="filter-btn" id="filter-eth">ETH</button>
+                    <button class="filter-btn" id="filter-xrp">XRP</button>
+                    <button class="filter-btn" id="filter-doge">DOGE</button>
+                    <button class="filter-btn" id="filter-bnb">BNB</button>
+                    <button class="filter-btn" id="filter-ada">ADA</button>
+                </div>
+                <canvas id="equityCurveChart"></canvas>
+            </div>
+            <div class="card chart-card">
+                <h3>信號決策分佈 (總體)</h3>
+                <canvas id="signalPieChart"></canvas>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2 id="tableTitle">詳細交易日誌 (總體)</h2>
+            <div class="table-container">
+                <table id="tradeLogTable">
+                    <thead>
+                        <tr>
+                            <th>入場日期</th>
+                            <th>幣種</th>
+                            <th>方向</th>
+                            <th>入場價</th>
+                            <th>出場價</th>
+                            <th>部位大小</th>
+                            <th>盈虧 (PnL)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        </tbody>
+                </table>
+            </div>
+        </section>
     </div>
 
-    <!-- KPI -->
-    <div class="grid4" style="margin-top:12px;">
-      <div class="card kpi"><div class="muted">總體準確率</div><div id="kpi-acc" class="num">—</div></div>
-      <div class="card kpi"><div class="muted">交易信號準確率</div><div id="kpi-tradeacc" class="num">—</div></div>
-      <div class="card kpi"><div class="muted">觀望信號準確率</div><div id="kpi-holdacc" class="num">—</div></div>
-      <div class="card kpi"><div class="muted">已驗證預測總數</div><div id="kpi-n" class="num">—</div></div>
-    </div>
-
-    <div class="row" style="margin-top:12px;">
-      <div class="card" style="flex:2;">
-        <div class="muted">整體風險/報酬概覽（來自 Portfolio Overall）</div>
-        <div id="metricChart" style="height:320px;"></div>
-      </div>
-      <div class="card" style="flex:1;">
-        <div class="muted">交易筆數分佈（BTC / ETH / 其他）</div>
-        <div id="tradePie" style="height:320px;"></div>
-      </div>
-    </div>
-
-    <!-- 分資產統計 -->
-    <div class="card" style="margin-top:12px;">
-      <div class="muted" style="font-weight:700;">分資產統計（由文字報告解析）</div>
-      <table class="tbl mono" id="assetTbl"></table>
-    </div>
-
-    <!-- 回測報告（Overall 指標表） -->
-    <div class="card" style="margin-top:12px;">
-      <div class="muted" style="font-weight:700;">回測報告（Overall 指標）</div>
-      <table class="tbl mono" id="reportTbl"></table>
-    </div>
-
-    <!-- 原文 -->
-    <div class="card" style="margin-top:12px;">
-      <div class="muted" style="font-weight:700;">90 天文字報告（原文）</div>
-      <details open style="margin-top:6px;">
-        <summary class="muted">Signal Quality Statistics Report（信號品質統計）</summary>
-        <pre id="txtRawSignal" class="mono plain">—</pre>
-      </details>
-      <details open style="margin-top:8px;">
-        <summary class="muted">Portfolio Backtest Report（投資組合回測）</summary>
-        <pre id="txtRawPortfolio" class="mono plain">—</pre>
-      </details>
-    </div>
-
-    <div class="footer">© Model Report</div>
-  </div>
-
-  <script>
-    // === 讀兩份文字報告 ===
-    async function loadTextReports() {
-      const sig = await fetch('./data/report_signal_statistics.txt').then(r=>r.text());
-      const pf  = await fetch('./data/report_portfolio_backtest.txt').then(r=>r.text());
-      return { sig, pf };
-    }
-
-    // === 解析：Signal ===
-    function parseSignal(txt){
-      const pick = (re) => (txt.match(re)||[])[1];
-      const toNum = (s)=> s==null?undefined:+s;
-      // Overall
-      const n_overall  = toNum(pick(/已驗證總預測數\s*:\s*(\d+)/));
-      const hr_overall = pick(/方向命中率.*?:\s*([\d.]+)%/);
-      const vhr_overall= pick(/波動命中率.*?:\s*([\d.]+)%/);
-      // BTC block
-      const btc_block = /--- \[ BTC 表現 \][\s\S]*?--- \[ ETH 表現 \]/.exec(txt)?.[0] || '';
-      const btc_n   = toNum((btc_block.match(/已驗證總預測數\s*:\s*(\d+)/)||[])[1]);
-      const btc_hr  = (btc_block.match(/方向命中率.*?:\s*([\d.]+)%/)||[])[1];
-      const btc_vhr = (btc_block.match(/波動命中率.*?:\s*([\d.]+)%/)||[])[1];
-      // ETH block
-      const eth_block = /--- \[ ETH 表現 \][\s\S]*$/.exec(txt)?.[0] || '';
-      const eth_n   = toNum((eth_block.match(/已驗證總預測數\s*:\s*(\d+)/)||[])[1]);
-      const eth_hr  = (eth_block.match(/方向命中率.*?:\s*([\d.]+)%/)||[])[1];
-      const eth_vhr = (eth_block.match(/波動命中率.*?:\s*([\d.]+)%/)||[])[1];
-      return {
-        overall: { n:n_overall, hit_rate_pct:hr_overall, vol_hit_rate_pct:vhr_overall },
-        BTC: { n:btc_n, hit_rate_pct:btc_hr, vol_hit_rate_pct:btc_vhr },
-        ETH: { n:eth_n, hit_rate_pct:eth_hr, vol_hit_rate_pct:eth_vhr }
-      };
-    }
-
-    // === 解析：Portfolio ===
-    function parsePortfolio(txt){
-      const pick = (re) => (txt.match(re)||[])[1];
-      const toNum = (s)=> s==null?undefined:+s;
-
-      const overall = {
-        equity:       pick(/最終權益.*?:\s*\$([\d.,]+)/),
-        cagr_pct:     pick(/年化報酬率.*?:\s*([-\d.]+)%/),
-        mdd_pct:      pick(/最大回撤.*?:\s*([-\d.]+)%/),
-        sharpe:       pick(/夏普比.*?:\s*([-\d.]+)/),
-        sortino:      pick(/Sortino比.*?:\s*([-\d.]+)/),
-        calmar:       pick(/Calmar比.*?:\s*([-\d.]+)/)
-      };
-
-      const sect = (name) => {
-        const re = new RegExp(`--- \\[ ${name} 交易統計 \\][\\s\\S]*?(?=(--- \\[|$))`);
-        const block = (txt.match(re)||[])[0] || '';
-        return {
-          n:          toNum((block.match(/總交易筆數\s*:\s*(\d+)/)||[])[1]),
-          win_pct:          (block.match(/勝率.*?:\s*([\d.]+)%/)||[])[1],
-          pf:               (block.match(/利潤因子.*?:\s*([\\d.]+)/)||[])[1],
-          expectancy:       (block.match(/期望值\/每筆.*?:\s*\$([-\d.]+)/)||[])[1],
-          avg_win:          (block.match(/平均單筆盈利.*?:\s*\$([-\d.]+)/)||[])[1],
-          avg_loss:         (block.match(/平均單筆虧損.*?:\s*\$([-\d.]+)/)||[])[1],
-        };
-      };
-
-      return {
-        overall,
-        BTC: sect('BTC'),
-        ETH: sect('ETH'),
-        TOTAL: sect('總體 \\(Overall\\)')
-      };
-    }
-
-    // === 畫圖工具 ===
-    function C(){ const cs=getComputedStyle(document.body); return {
-      fg:cs.color, muted:'#94a3b8', grid:'rgba(148,163,184,.2)'
-    };}
-
-    // === 畫面填充 ===
-    function fillSummary(sig, pf){
-      const el = document.getElementById('txtSummary');
-      if(!el) return;
-      const S=sig.overall, P=pf.overall;
-      el.innerHTML = `信號 N=${S.n??'—'}、命中率 ${S.hit_rate_pct??'—'}、波動命中率 ${S.vol_hit_rate_pct??'—'}
-        <span class="sep">│</span> 回測 CAGR ${P.cagr_pct??'—'}、MDD ${P.mdd_pct??'—'}、Sharpe ${P.sharpe??'—'}、Sortino ${P.sortino??'—'}`;
-    }
-
-    function fillKPI(sig){
-      const S=sig.overall;
-      const pct = v => v? (parseFloat(v).toFixed(2)+'%') : '—';
-      document.getElementById('kpi-acc').textContent = pct(S.hit_rate_pct);
-      document.getElementById('kpi-tradeacc').textContent = '—';
-      document.getElementById('kpi-holdacc').textContent  = '—';
-      document.getElementById('kpi-n').textContent = String(S.n ?? '—');
-    }
-
-    function drawMetricChart(pf){
-      const ov=pf.overall, c=C();
-      const x = ['CAGR %','MDD %','Sharpe','Sortino'];
-      const y = [
-        ov.cagr_pct? +ov.cagr_pct : 0,
-        ov.mdd_pct?  +ov.mdd_pct  : 0,
-        ov.sharpe?   +ov.sharpe   : 0,
-        ov.sortino?  +ov.sortino  : 0
-      ];
-      const chart = echarts.init(document.getElementById('metricChart'));
-      chart.setOption({
-        backgroundColor:'transparent', textStyle:{color:c.fg},
-        grid:{left:50,right:16,top:20,bottom:40},
-        xAxis:{ type:'category', data:x, axisLabel:{color:c.muted} },
-        yAxis:{ type:'value', axisLabel:{color:c.muted}, splitLine:{lineStyle:{color:c.grid}} },
-        tooltip:{ trigger:'axis' },
-        series:[{ type:'bar', data:y, name:'Overall', label:{show:true, position:'top'} }]
-      });
-    }
-
-    function drawTradePie(sig, pf){
-      // 用 Portfolio 的 BTC/ETH 總交易筆數；Others = TOTAL.n - BTC.n - ETH.n（若有）
-      const btc = pf.BTC.n || sig.BTC.n || 0;
-      const eth = pf.ETH.n || sig.ETH.n || 0;
-      const total = pf.TOTAL.n || (sig.overall.n ?? 0);
-      const oth = Math.max(0, (total||0) - btc - eth);
-      const c=C();
-      const pie = echarts.init(document.getElementById('tradePie'));
-      pie.setOption({
-        backgroundColor:'transparent', textStyle:{color:c.fg},
-        tooltip:{ trigger:'item' },
-        series:[{
-          type:'pie', radius:['45%','70%'],
-          data: [
-            {value:btc, name:'BTC'},
-            {value:eth, name:'ETH'},
-            {value:oth, name:'其他'}
-          ]
-        }]
-      });
-    }
-
-    function fillAssetTable(sig, pf){
-      const el = document.getElementById('assetTbl');
-      const row = (name, S, P)=>`
-        <tr>
-          <td>${name}</td>
-          <td class="mono">${S?.n ?? P?.n ?? '—'}</td>
-          <td class="mono">${S?.hit_rate_pct ?? '—'}</td>
-          <td class="mono">${P?.win_pct ?? '—'}</td>
-          <td class="mono">${P?.pf ?? '—'}</td>
-          <td class="mono">${P?.expectancy ? ('$'+P.expectancy) : '—'}</td>
-          <td class="mono">${P?.avg_win ? ('$'+P.avg_win) : '—'}</td>
-          <td class="mono">${P?.avg_loss ? ('$'+P.avg_loss) : '—'}</td>
-        </tr>`;
-      el.innerHTML = `
-        <tr>
-          <th>資產</th><th>信號 N</th><th>方向命中率</th><th>勝率</th>
-          <th>Profit Factor</th><th>期望值/每筆</th><th>平均單筆盈利</th><th>平均單筆虧損</th>
-        </tr>
-        ${row('BTC', sig.BTC, pf.BTC)}
-        ${row('ETH', sig.ETH, pf.ETH)}
-        ${row('Overall', sig.overall, pf.TOTAL)}
-      `;
-    }
-
-    function fillReportTable(pf){
-      const el = document.getElementById('reportTbl');
-      const o = pf.overall;
-      const pct = (v)=> v==null? '—' : (parseFloat(v).toFixed(2)+'%');
-      const fix = (v,n=2)=> v==null? '—' : (+v).toFixed(n);
-      el.innerHTML = `
-        <tr><th>指標</th><th>數值</th></tr>
-        <tr><td>最終權益 (Final Equity)</td><td class="mono">$${o.equity ?? '—'}</td></tr>
-        <tr><td>年化報酬率 (CAGR)</td><td class="mono">${pct(o.cagr_pct)}</td></tr>
-        <tr><td>最大回撤 (Max Drawdown)</td><td class="mono">${pct(o.mdd_pct)}</td></tr>
-        <tr><td>夏普比 (Sharpe)</td><td class="mono">${fix(o.sharpe)}</td></tr>
-        <tr><td>Sortino 比</td><td class="mono">${fix(o.sortino)}</td></tr>
-        <tr><td>Calmar 比</td><td class="mono">${fix(o.calmar)}</td></tr>
-      `;
-    }
-
-    (async () => {
-      try{
-        const {sig, pf} = await loadTextReports();
-        // 原文嵌入
-        document.getElementById('txtRawSignal').textContent = sig;
-        document.getElementById('txtRawPortfolio').textContent = pf;
-
-        const S = parseSignal(sig);
-        const P = parsePortfolio(pf);
-
-        fillSummary(S, P);
-        fillKPI(S);
-        drawMetricChart(P);
-        drawTradePie(S, P);
-        fillAssetTable(S, P);
-        fillReportTable(P);
-      } catch(e){
-        console.error(e);
-      }
-    })();
-  </script>
+    <script src="script.js"></script>
 </body>
 </html>
