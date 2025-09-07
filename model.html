@@ -18,6 +18,7 @@
     .kpi { text-align:center; }
     .kpi .num { font-size: 34px; font-weight: 800; margin-top: 8px; }
     .grid4 { display:grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap:12px; }
+    .grid3 { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:12px; }
     table.tbl { width:100%; border-collapse:collapse; }
     table.tbl th, table.tbl td { padding:8px 10px; border-bottom:1px solid rgba(148,163,184,.25); text-align:left; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace; }
@@ -26,10 +27,10 @@
     .red { background:rgba(239,68,68,.15); color:#fca5a5; }
     .gray { background:rgba(148,163,184,.15); color:#cbd5e1; }
     .footer { text-align:center; font-size:12px; margin: 24px auto; color:var(--muted); }
-    /* === 新增：右上角 90 天摘要小字區塊 === */
+    /* 右上角 90 天摘要 */
     #txtSummary { margin-top:6px; line-height:1.4; font-size:13px; }
     #txtSummary .sep { opacity:.6; margin:0 6px; }
-    /* === 新增：原文報告 pre 外觀 === */
+    /* 原文報告 pre 外觀 */
     pre.plain { white-space:pre-wrap; margin:8px 0 0; }
     details summary { cursor:pointer; user-select:none; }
   </style>
@@ -39,12 +40,11 @@
     <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
       <div>
         <div class="title">XGBoost 策略組合績效報告</div>
-        <div class="muted">模型期間、指標與回測日誌僅示意，可直接接你的 API / Supabase 資料表。</div>
+        <div class="muted">本頁所有數據皆來自 90 天文字報告（Signal/Portfolio）。</div>
       </div>
-      <!-- ★ 右上角：回首頁 + 90天文字報告摘要（整合） -->
       <div style="text-align:right;">
         <a class="muted" href="./index.html">← 回到主頁</a>
-        <div id="txtSummary" class="mono muted"><!-- 由 JS 動態填入 --></div>
+        <div id="txtSummary" class="mono muted">—</div>
       </div>
     </div>
 
@@ -58,26 +58,28 @@
 
     <div class="row" style="margin-top:12px;">
       <div class="card" style="flex:2;">
-        <div class="muted">單位權益曲線</div>
-        <div id="equity" style="height:320px;"></div>
+        <div class="muted">整體風險/報酬概覽（來自 Portfolio Overall）</div>
+        <div id="metricChart" style="height:320px;"></div>
       </div>
       <div class="card" style="flex:1;">
-        <div class="muted">最終決策分佈</div>
-        <div id="pie" style="height:320px;"></div>
+        <div class="muted">交易筆數分佈（BTC / ETH / 其他）</div>
+        <div id="tradePie" style="height:320px;"></div>
       </div>
     </div>
 
+    <!-- 分資產統計 -->
     <div class="card" style="margin-top:12px;">
-      <div class="muted" style="font-weight:700;">詳細交易日誌</div>
-      <table class="tbl mono" id="log"></table>
+      <div class="muted" style="font-weight:700;">分資產統計（由文字報告解析）</div>
+      <table class="tbl mono" id="assetTbl"></table>
     </div>
 
+    <!-- 回測報告（Overall 指標表） -->
     <div class="card" style="margin-top:12px;">
-      <div class="muted" style="font-weight:700;">回測報告</div>
+      <div class="muted" style="font-weight:700;">回測報告（Overall 指標）</div>
       <table class="tbl mono" id="reportTbl"></table>
     </div>
 
-    <!-- ★ 新增：90天文字報告（原文，可收合） -->
+    <!-- 原文 -->
     <div class="card" style="margin-top:12px;">
       <div class="muted" style="font-weight:700;">90 天文字報告（原文）</div>
       <details open style="margin-top:6px;">
@@ -94,215 +96,197 @@
   </div>
 
   <script>
-    async function loadBacktest(){
-      try {
-        const r = await fetch('./data/backtest_sample.json');
-        return await r.json();
-      } catch(e) {
-        console.error(e); return {data:[]};
-      }
-    }
-
-    // --- 讀回測報告（優先 Supabase → 內嵌 report → 獨立檔） ---
-    async function loadBacktestReport() {
-      try {
-        if (window.SUPABASE_URL && window.SUPABASE_KEY) {
-          const base = SUPABASE_URL.replace(/\/$/, '');
-          const url = `${base}/rest/v1/backtest_reports?symbol=eq.ETHUSDT&horizon=eq.6h&order=asof.desc&limit=1`;
-          const [row] = await fetch(url, {
-            headers: {
-              apikey: SUPABASE_KEY,
-              Authorization: `Bearer ${SUPABASE_KEY}`,
-              Accept: 'application/json',
-              'Accept-Profile': 'predictor'
-            }
-          }).then(r=>r.json());
-          if (row) return row;
-        }
-      } catch (e) { console.warn('[report] Supabase 取數失敗', e); }
-
-      try {
-        const bt = await fetch('./data/backtest_sample.json').then(r=>r.json());
-        if (bt && bt.report) return bt.report;
-      } catch {}
-
-      try {
-        return await fetch('./data/backtest_report.json').then(r=>r.json());
-      } catch {}
-
-      return null;
-    }
-
-    // --- 格式化小工具 ---
-    const pct2 = v => (v===null||v===undefined||isNaN(v)) ? '—' : (v*100).toFixed(2)+'%';
-    const num  = v => (v===null||v===undefined||isNaN(v)) ? '—' : String(v);
-    const fix  = (v,n=4) => (v===null||v===undefined||isNaN(v)) ? '—' : (+v).toFixed(n);
-
-    // --- 繪製回測報告表格 ---
-    function renderReportTable(rep){
-      const el = document.getElementById('reportTbl');
-      if (!el) return;
-      if (!rep) { el.innerHTML = '<tr><td>—</td></tr>'; return; }
-
-      const rows = [
-        ['總交易筆數',            num(rep.n_trades)],
-        ['方向命中率',            pct2(rep.hit_rate)],
-        ['波動命中率',            pct2(rep.vol_hit_rate)],
-        ['夏普比',               fix(rep.sharpe, 2)],
-        ['Sortino比',            fix(rep.sortino, 2)],
-        ['年化報酬率',            pct2(rep.cagr)],
-        ['年化波動',              pct2(rep.volatility_ann)],
-        ['最大回撤',              pct2(rep.max_drawdown)],
-        ['Calmar比',             fix(rep.calmar, 2)],
-        ['利潤因子',              fix(rep.profit_factor, 2)],
-        ['期望值/每筆',           fix(rep.expectancy, 4)],
-        ['平均每筆報酬',          fix(rep.avg_trade_return, 4)],
-        ['中位每筆報酬',          fix(rep.median_trade_return, 4)],
-        ['勝率',                 pct2(rep.win_rate)],
-        ['負率',                 pct2(rep.loss_rate)],
-        ['平均單筆盈利',           pct2(rep.avg_win)],
-        ['平均單筆虧損',           pct2(rep.avg_loss)],
-        ['連續盈利最長',           num(rep.max_consec_wins)],
-        ['連續虧損最長',           num(rep.max_consec_losses)],
-        ['平均持有天數',           fix(rep.avg_holding_days, 2)],
-        ['槓桿單位註記',           rep.atr_leverage_unit || '—'],
-        ['平均曝險',              pct2(rep.exposure)],
-        ['週轉率',               fix(rep.turnover, 2)],
-        ['測試天數',              num(rep.test_days)],
-        ['折數（WF）',            num(rep.n_folds)],
-        ['分類評估（OOF）acc',    pct2(rep?.oof?.acc)],
-        ['分類評估（OOF）bacc',   pct2(rep?.oof?.bacc)],
-        ['分類評估（OOF）f1',     pct2(rep?.oof?.f1)],
-        ['分類評估（OOF）auc',    fix(rep?.oof?.auc, 3)]
-      ];
-
-      el.innerHTML = `
-        <tr><th>指標</th><th>數值</th></tr>
-        ${rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('')}
-      `;
-    }
-
-    // === 新增：讀取並整合 90 天文字報告（右上角摘要 + 原文區） ===
+    // === 讀兩份文字報告 ===
     async function loadTextReports() {
-      const summaryEl = document.getElementById('txtSummary');
-      const sigEl = document.getElementById('txtRawSignal');
-      const pfEl  = document.getElementById('txtRawPortfolio');
-
-      let sig = null, pf = null;
-      try { sig = await fetch('./data/report_signal_statistics.txt').then(r=>r.text()); } catch(e){ console.warn(e); }
-      try { pf  = await fetch('./data/report_portfolio_backtest.txt').then(r=>r.text()); } catch(e){ console.warn(e); }
-
-      if (sigEl && sig) sigEl.textContent = sig;
-      if (pfEl  && pf ) pfEl.textContent  = pf;
-
-      // 簡易 parser（抓 Overall 段落的關鍵數字）
-      const parseSignal = (txt) => {
-        if (!txt) return null;
-        const n   = (txt.match(/已驗證總預測數\s*:\s*(\d+)/) || [])[1];
-        const hr  = (txt.match(/方向命中率.*?:\s*([\d.]+)%/) || [])[1];
-        const vhr = (txt.match(/波動命中率.*?:\s*([\d.]+)%/) || [])[1];
-        return { n: n?+n:undefined, hit_rate_pct: hr, vol_hit_rate_pct: vhr };
-      };
-      const parsePortfolio = (txt) => {
-        if (!txt) return null;
-        const cagr = (txt.match(/年化報酬率.*?:\s*([\d.\-]+)%/) || [])[1];
-        const mdd  = (txt.match(/最大回撤.*?:\s*([\-\d.]+)%/) || [])[1];
-        const sharpe  = (txt.match(/夏普比.*?:\s*([-\d.]+)/) || [])[1];
-        const sortino = (txt.match(/Sortino比.*?:\s*([-\d.]+)/) || [])[1];
-        return { cagr_pct: cagr, mdd_pct: mdd, sharpe, sortino };
-      };
-
-      const S = parseSignal(sig);
-      const P = parsePortfolio(pf);
-
-      if (summaryEl) {
-        const parts = [];
-        if (S) parts.push(`信號 N=${S.n ?? '—'}、命中率 ${S.hit_rate_pct ?? '—'}、波動命中率 ${S.vol_hit_rate_pct ?? '—'}`);
-        if (P) parts.push(`回測 CAGR ${P.cagr_pct ?? '—'}、MDD ${P.mdd_pct ?? '—'}、Sharpe ${P.sharpe ?? '—'}、Sortino ${P.sortino ?? '—'}`);
-        summaryEl.innerHTML = parts.length
-          ? `<span>${parts[0]}</span>${parts[1] ? '<span class="sep">│</span><span>'+parts[1]+'</span>' : ''}`
-          : '—';
-      }
+      const sig = await fetch('./data/report_signal_statistics.txt').then(r=>r.text());
+      const pf  = await fetch('./data/report_portfolio_backtest.txt').then(r=>r.text());
+      return { sig, pf };
     }
 
-    // --- 在頁面啟動流程中呼叫（放在你既有 IIFE 主程式內） ---
-    (async () => {
-      const report = await loadBacktestReport();
-      renderReportTable(report);
-    })();
+    // === 解析：Signal ===
+    function parseSignal(txt){
+      const pick = (re) => (txt.match(re)||[])[1];
+      const toNum = (s)=> s==null?undefined:+s;
+      // Overall
+      const n_overall  = toNum(pick(/已驗證總預測數\s*:\s*(\d+)/));
+      const hr_overall = pick(/方向命中率.*?:\s*([\d.]+)%/);
+      const vhr_overall= pick(/波動命中率.*?:\s*([\d.]+)%/);
+      // BTC block
+      const btc_block = /--- \[ BTC 表現 \][\s\S]*?--- \[ ETH 表現 \]/.exec(txt)?.[0] || '';
+      const btc_n   = toNum((btc_block.match(/已驗證總預測數\s*:\s*(\d+)/)||[])[1]);
+      const btc_hr  = (btc_block.match(/方向命中率.*?:\s*([\d.]+)%/)||[])[1];
+      const btc_vhr = (btc_block.match(/波動命中率.*?:\s*([\d.]+)%/)||[])[1];
+      // ETH block
+      const eth_block = /--- \[ ETH 表現 \][\s\S]*$/.exec(txt)?.[0] || '';
+      const eth_n   = toNum((eth_block.match(/已驗證總預測數\s*:\s*(\d+)/)||[])[1]);
+      const eth_hr  = (eth_block.match(/方向命中率.*?:\s*([\d.]+)%/)||[])[1];
+      const eth_vhr = (eth_block.match(/波動命中率.*?:\s*([\d.]+)%/)||[])[1];
+      return {
+        overall: { n:n_overall, hit_rate_pct:hr_overall, vol_hit_rate_pct:vhr_overall },
+        BTC: { n:btc_n, hit_rate_pct:btc_hr, vol_hit_rate_pct:btc_vhr },
+        ETH: { n:eth_n, hit_rate_pct:eth_hr, vol_hit_rate_pct:eth_vhr }
+      };
+    }
 
-    function pct(x){ return (x*100).toFixed(2) + '%'; }
+    // === 解析：Portfolio ===
+    function parsePortfolio(txt){
+      const pick = (re) => (txt.match(re)||[])[1];
+      const toNum = (s)=> s==null?undefined:+s;
 
-    (async () => {
-      const raw = await loadBacktest();
-      const rows = Array.isArray(raw.data) ? raw.data : [];
+      const overall = {
+        equity:       pick(/最終權益.*?:\s*\$([\d.,]+)/),
+        cagr_pct:     pick(/年化報酬率.*?:\s*([-\d.]+)%/),
+        mdd_pct:      pick(/最大回撤.*?:\s*([-\d.]+)%/),
+        sharpe:       pick(/夏普比.*?:\s*([-\d.]+)/),
+        sortino:      pick(/Sortino比.*?:\s*([-\d.]+)/),
+        calmar:       pick(/Calmar比.*?:\s*([-\d.]+)/)
+      };
 
-      // === KPI（簡單示意） ===
-      const N = rows.length;
-      const acc = N ? rows.filter(r=>r.pred_dir===r.actual_dir).length/N : 0;
-      const tradeRows = rows.filter(r=>r.pred_dir!=='hold');
-      const holdRows  = rows.filter(r=>r.pred_dir==='hold');
-      const tradeAcc = tradeRows.length ? tradeRows.filter(r=>r.pred_dir===r.actual_dir).length/tradeRows.length : 0;
-      const holdAcc  = holdRows.length ? holdRows.filter(r=>r.pred_dir===r.actual_dir).length/holdRows.length : 0;
-      document.getElementById('kpi-acc').textContent = pct(acc);
-      document.getElementById('kpi-tradeacc').textContent = pct(tradeAcc);
-      document.getElementById('kpi-holdacc').textContent = pct(holdAcc);
-      document.getElementById('kpi-n').textContent = String(N);
+      const sect = (name) => {
+        const re = new RegExp(`--- \\[ ${name} 交易統計 \\][\\s\\S]*?(?=(--- \\[|$))`);
+        const block = (txt.match(re)||[])[0] || '';
+        return {
+          n:          toNum((block.match(/總交易筆數\s*:\s*(\d+)/)||[])[1]),
+          win_pct:          (block.match(/勝率.*?:\s*([\d.]+)%/)||[])[1],
+          pf:               (block.match(/利潤因子.*?:\s*([\\d.]+)/)||[])[1],
+          expectancy:       (block.match(/期望值\/每筆.*?:\s*\$([-\d.]+)/)||[])[1],
+          avg_win:          (block.match(/平均單筆盈利.*?:\s*\$([-\d.]+)/)||[])[1],
+          avg_loss:         (block.match(/平均單筆虧損.*?:\s*\$([-\d.]+)/)||[])[1],
+        };
+      };
 
-      // === 權益曲線（1/-1/0 乘上預測方向 → 累積） ===
-      const equity = []; let cum = 0;
-      const xs = rows.map(r => (r.timestamp||'').slice(0,10));
-      rows.forEach(r=>{
-        const sgn = r.pred_dir==='up' ? 1 : (r.pred_dir==='down' ? -1 : 0);
-        cum += sgn * (Number(r.delta_actual)||0);
-        equity.push(cum);
-      });
-      const eq = echarts.init(document.getElementById('equity'));
-      eq.setOption({
-        backgroundColor:'transparent', textStyle:{color:getComputedStyle(document.body).color},
+      return {
+        overall,
+        BTC: sect('BTC'),
+        ETH: sect('ETH'),
+        TOTAL: sect('總體 \\(Overall\\)')
+      };
+    }
+
+    // === 畫圖工具 ===
+    function C(){ const cs=getComputedStyle(document.body); return {
+      fg:cs.color, muted:'#94a3b8', grid:'rgba(148,163,184,.2)'
+    };}
+
+    // === 畫面填充 ===
+    function fillSummary(sig, pf){
+      const el = document.getElementById('txtSummary');
+      if(!el) return;
+      const S=sig.overall, P=pf.overall;
+      el.innerHTML = `信號 N=${S.n??'—'}、命中率 ${S.hit_rate_pct??'—'}、波動命中率 ${S.vol_hit_rate_pct??'—'}
+        <span class="sep">│</span> 回測 CAGR ${P.cagr_pct??'—'}、MDD ${P.mdd_pct??'—'}、Sharpe ${P.sharpe??'—'}、Sortino ${P.sortino??'—'}`;
+    }
+
+    function fillKPI(sig){
+      const S=sig.overall;
+      const pct = v => v? (parseFloat(v).toFixed(2)+'%') : '—';
+      document.getElementById('kpi-acc').textContent = pct(S.hit_rate_pct);
+      document.getElementById('kpi-tradeacc').textContent = '—';
+      document.getElementById('kpi-holdacc').textContent  = '—';
+      document.getElementById('kpi-n').textContent = String(S.n ?? '—');
+    }
+
+    function drawMetricChart(pf){
+      const ov=pf.overall, c=C();
+      const x = ['CAGR %','MDD %','Sharpe','Sortino'];
+      const y = [
+        ov.cagr_pct? +ov.cagr_pct : 0,
+        ov.mdd_pct?  +ov.mdd_pct  : 0,
+        ov.sharpe?   +ov.sharpe   : 0,
+        ov.sortino?  +ov.sortino  : 0
+      ];
+      const chart = echarts.init(document.getElementById('metricChart'));
+      chart.setOption({
+        backgroundColor:'transparent', textStyle:{color:c.fg},
         grid:{left:50,right:16,top:20,bottom:40},
-        xAxis:{ type:'category', data:xs, boundaryGap:false, axisLabel:{color:'#94a3b8'} },
-        yAxis:{ type:'value', axisLabel:{color:'#94a3b8'}, splitLine:{lineStyle:{color:'rgba(148,163,184,.2)'}} },
+        xAxis:{ type:'category', data:x, axisLabel:{color:c.muted} },
+        yAxis:{ type:'value', axisLabel:{color:c.muted}, splitLine:{lineStyle:{color:c.grid}} },
         tooltip:{ trigger:'axis' },
-        series:[{ type:'line', data: equity, showSymbol:false, smooth:true, name:'Equity' }]
+        series:[{ type:'bar', data:y, name:'Overall', label:{show:true, position:'top'} }]
       });
+    }
 
-      // === 決策分佈圓餅圖 ===
-      const cnt = { up:0, down:0, hold:0 };
-      rows.forEach(r=>{ cnt[r.pred_dir] = (cnt[r.pred_dir]||0)+1; });
-      const pie = echarts.init(document.getElementById('pie'));
+    function drawTradePie(sig, pf){
+      // 用 Portfolio 的 BTC/ETH 總交易筆數；Others = TOTAL.n - BTC.n - ETH.n（若有）
+      const btc = pf.BTC.n || sig.BTC.n || 0;
+      const eth = pf.ETH.n || sig.ETH.n || 0;
+      const total = pf.TOTAL.n || (sig.overall.n ?? 0);
+      const oth = Math.max(0, (total||0) - btc - eth);
+      const c=C();
+      const pie = echarts.init(document.getElementById('tradePie'));
       pie.setOption({
-        backgroundColor:'transparent', textStyle:{color:getComputedStyle(document.body).color},
+        backgroundColor:'transparent', textStyle:{color:c.fg},
         tooltip:{ trigger:'item' },
         series:[{
           type:'pie', radius:['45%','70%'],
           data: [
-            {value:cnt.up,   name:'做多 (Long)'},
-            {value:cnt.down, name:'做空 (Short)'},
-            {value:cnt.hold, name:'觀望 (Hold)'}
+            {value:btc, name:'BTC'},
+            {value:eth, name:'ETH'},
+            {value:oth, name:'其他'}
           ]
         }]
       });
+    }
 
-      // === 交易日誌表 ===
-      const el = document.getElementById('log');
-      el.innerHTML = '<tr><th>日期</th><th>預測</th><th>幅度</th><th>實際</th><th>是否正確</th></tr>' +
-        rows.map(r=>{
-          const dir = r.pred_dir==='up' ? '<span class="pill green">多</span>'
-                    : r.pred_dir==='down' ? '<span class="pill red">空</span>'
-                    : '<span class="pill gray">觀望</span>';
-          const ok = (r.pred_dir===r.actual_dir) ? 'true' : 'false';
-          return `<tr>
-            <td>${(r.timestamp||'').replace('T',' ').slice(0,16)}</td>
-            <td>${dir}</td>
-            <td>${(Number(r.delta_pred)||0).toFixed(2)}%</td>
-            <td>${r.actual_dir||'—'}</td>
-            <td>${ok}</td>
-          </tr>`;
-        }).join('');
+    function fillAssetTable(sig, pf){
+      const el = document.getElementById('assetTbl');
+      const row = (name, S, P)=>`
+        <tr>
+          <td>${name}</td>
+          <td class="mono">${S?.n ?? P?.n ?? '—'}</td>
+          <td class="mono">${S?.hit_rate_pct ?? '—'}</td>
+          <td class="mono">${P?.win_pct ?? '—'}</td>
+          <td class="mono">${P?.pf ?? '—'}</td>
+          <td class="mono">${P?.expectancy ? ('$'+P.expectancy) : '—'}</td>
+          <td class="mono">${P?.avg_win ? ('$'+P.avg_win) : '—'}</td>
+          <td class="mono">${P?.avg_loss ? ('$'+P.avg_loss) : '—'}</td>
+        </tr>`;
+      el.innerHTML = `
+        <tr>
+          <th>資產</th><th>信號 N</th><th>方向命中率</th><th>勝率</th>
+          <th>Profit Factor</th><th>期望值/每筆</th><th>平均單筆盈利</th><th>平均單筆虧損</th>
+        </tr>
+        ${row('BTC', sig.BTC, pf.BTC)}
+        ${row('ETH', sig.ETH, pf.ETH)}
+        ${row('Overall', sig.overall, pf.TOTAL)}
+      `;
+    }
 
-      // ★ 讀入並整合 90 天文字報告（右上角摘要 + 原文區）
-      await loadTextReports();
+    function fillReportTable(pf){
+      const el = document.getElementById('reportTbl');
+      const o = pf.overall;
+      const pct = (v)=> v==null? '—' : (parseFloat(v).toFixed(2)+'%');
+      const fix = (v,n=2)=> v==null? '—' : (+v).toFixed(n);
+      el.innerHTML = `
+        <tr><th>指標</th><th>數值</th></tr>
+        <tr><td>最終權益 (Final Equity)</td><td class="mono">$${o.equity ?? '—'}</td></tr>
+        <tr><td>年化報酬率 (CAGR)</td><td class="mono">${pct(o.cagr_pct)}</td></tr>
+        <tr><td>最大回撤 (Max Drawdown)</td><td class="mono">${pct(o.mdd_pct)}</td></tr>
+        <tr><td>夏普比 (Sharpe)</td><td class="mono">${fix(o.sharpe)}</td></tr>
+        <tr><td>Sortino 比</td><td class="mono">${fix(o.sortino)}</td></tr>
+        <tr><td>Calmar 比</td><td class="mono">${fix(o.calmar)}</td></tr>
+      `;
+    }
+
+    (async () => {
+      try{
+        const {sig, pf} = await loadTextReports();
+        // 原文嵌入
+        document.getElementById('txtRawSignal').textContent = sig;
+        document.getElementById('txtRawPortfolio').textContent = pf;
+
+        const S = parseSignal(sig);
+        const P = parsePortfolio(pf);
+
+        fillSummary(S, P);
+        fillKPI(S);
+        drawMetricChart(P);
+        drawTradePie(S, P);
+        fillAssetTable(S, P);
+        fillReportTable(P);
+      } catch(e){
+        console.error(e);
+      }
     })();
   </script>
 </body>
