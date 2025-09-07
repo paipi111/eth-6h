@@ -172,7 +172,7 @@
       <div class="card" style="margin-bottom:12px;">
         <div class="row" style="gap:8px; align-items:center;">
           <div class="title" style="font-size:16px;">📊 模型總覽（Home）</div>
-          <div class="muted" style="margin-left:auto;">資料來源：/data/ 靜態檔</div>
+          <div class="muted" style="margin-left:auto;">資料來源：Supabase 與 /data</div>
         </div>
         <div class="row" style="gap:8px; align-items:center;">
           <label class="muted">幣種</label>
@@ -305,15 +305,8 @@
           <!-- 最近 5 次預測 -->
           <div class="card">
             <div class="title">最近 5 次預測</div>
-            <table id="recentPredTable" class="data-table">
-              <thead>
-                <tr>
-                  <th>時間</th>
-                  <th>預測</th>
-                  <th>幅度</th>
-                  <th>真實</th>
-                </tr>
-              </thead>
+            <table id="recentPredTable">
+              <thead><tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>

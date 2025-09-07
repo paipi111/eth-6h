@@ -39,6 +39,15 @@ const SPARK_LIST = [
   ['MACD', 'macd', {macd:true}]
 ];
 
+// 直接走你標準化後的視圖
+const SB_BASE = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1`;
+const SB_HEADERS = {
+  apikey: SUPABASE_KEY,
+  Authorization: `Bearer ${SUPABASE_KEY}`,
+  Accept: 'application/json',
+  'Accept-Profile': 'predictor', // 你的 schema
+};
+
 function fmtNum(x){
   if (x==null || isNaN(x)) return '—';
   const ax = Math.abs(x);
@@ -135,12 +144,56 @@ function tipStyle(trigger='axis'){
   };
 }
 
+function todayUTC() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+async function fetchTodayPrediction(asset='BTC') {
+  const base = `${SB_BASE}/predictor.predictions_daily`;
+  const today = todayUTC();
+  // 先試今天
+  let q = new URLSearchParams({ coin:`eq.${asset}`, dt:`eq.${today}`, order:'model_tag.asc' });
+  let rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r=>r.json());
+  // 沒有就拿最近一筆
+  if (!rows.length) {
+    q = new URLSearchParams({ coin:`eq.${asset}`, order:'dt.desc', limit:'1' });
+    rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r=>r.json());
+  }
+  const r = rows[0];
+  return r ? { prob_up:+r.prob_up, dir:r.yhat_dir, model:r.model_tag } : null;
+}
+
+// 右側「最近 5 次預測」：直接抓近 5 天
+async function fetchRecentPredictions(asset = 'BTC', n = 5) {
+  const q = new URLSearchParams({ coin:`eq.${asset}`, order:'dt.desc', limit:String(n) });
+  const url = `${SB_BASE}/predictor.predictions_daily?${q}`;
+  return fetch(url, { headers: SB_HEADERS }).then(r => r.json());
+}
+
 // ====== 路由 ======
 function currentRoute(){
   const h = (location.hash || "#home").replace("#","").toUpperCase();
   return COINS.includes(h) ? h : "HOME";
 }
 window.addEventListener('hashchange', main);
+
+async function fetchKlineNav(asset = 'BTC', view = 'V1') {
+  const q = new URLSearchParams({
+    asset_code: `eq.${asset}`,
+    view_tag:   `eq.${view}`,
+    strategy:   `eq.atr1pct_long_only`,
+    order:      'dt.asc',
+  });
+  const url = `${SB_BASE}/predictor/api_kline_nav?${q}`;
+  const rows = await fetch(url, { headers: SB_HEADERS }).then(r => r.json());
+  // 映射到你現有的 OHLC 結構
+  const ohlc = rows.map(r => ({
+    t: r.dt, o: +r.open, h: +r.high, l: +r.low, c: +r.close, v: NaN
+  }));
+  // nav_usd 留給副圖或次軸
+  const nav = rows.map(r => +r.nav_usd);
+  return { ohlc, nav, rows };
+}
 
 // ====== 讀資料：Supabase（或 sample） ======
 async function fetchJSON(url, opts){
@@ -327,38 +380,67 @@ async function fetchIndicatorsFromSB(coin) {
 }
 
 // ====== 模型預測（先用 sample，可換成你的 API） ======
+// 右側摘要用（取今天）
 async function loadPredSample(coin){
-  if (state.pred) return state.pred;
-
-  const base = SUPABASE_URL.replace(/\/$/, '');
-  const url = `${base}/rest/v1/predictions_daily?coin=eq.${coin}&order=dt.desc&limit=1`;
   try {
-    const rows = await fetchJSON(url, {
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        Accept: 'application/json',
-        'Accept-Profile': 'predictor'   // 你的 schema
-      }
-    });
-    if (rows.length) {
+    const p = await fetchTodayPrediction(coin, 'ENS'); // 或 V1/V2...
+    if (p) {
       state.pred = {
-        y_pred: rows[0].y_dir_prob_up,   // 你可以改成實際數值欄位，例如 y_pred
-        horizon_hours: 24,               // 1d 預測 → 24 小時
-        ci: [0.01, 0.0234],              // 若你有上下界，可以寫進表裡再取
-        model: { name: rows[0].model_tag }
+        y_pred: p.prob_up,          // 0~1
+        horizon_hours: 24,
+        ci: null,
+        model: { name: p.model },
       };
-      state.pred_source = 'supabase';    // ★ 標記來源：Supabase
+      state.pred_source = 'supabase';
       return state.pred;
     }
-  } catch (e) {
-    console.warn("[pred] Supabase 抓取失敗，改用 sample", e);
+  } catch(e){
+    console.warn('[pred] fetchTodayPrediction failed', e);
+  }
+  state.pred = {}; state.pred_source = 'none';
+  return state.pred;
+}
+
+async function loadRecentPredictions(){
+  let tbody = document.querySelector('#recentPredTable tbody') 
+           || document.getElementById('lastPreds');
+  let container = tbody;
+  if (container && container.tagName !== 'TBODY') {
+    if (container.tagName === 'TABLE') {
+      tbody = container.querySelector('tbody') || container.appendChild(document.createElement('tbody'));
+    } else {
+      tbody = null;
+    }
   }
 
-  // fallback: sample 檔案
-  state.pred = await fetchJSON(`${DATA_BASE}/predict_sample.json`).catch(()=> ({}));
-  state.pred_source = Object.keys(state.pred||{}).length ? 'sample' : 'none'; // ★ 標記來源：sample/none
-  return state.pred;
+  try{
+    const rows = await fetchRecentPredictions(state.route || 'BTC', 5);
+    const bodyHtml = (rows && rows.length)
+      ? rows.map(r=>{
+          const dir = String(r.yhat_dir).toLowerCase()==='up' ? '↑ up' : '↓ down';
+          const dirCol = /up/i.test(r.yhat_dir) ? '#22c55e' : '#ef4444';
+          const p = Number(r.prob_up);
+          const v = Number.isFinite(p) ? (p<=1? p*100 : p) : NaN;
+          return `<tr>
+            <td class="mono">${r.dt}</td>
+            <td style="color:${dirCol};font-weight:700;">${dir}</td>
+            <td class="mono">${Number.isFinite(v)? v.toFixed(2)+'%' : '—'}</td>
+            <td class="mono">—</td>
+          </tr>`;
+        }).join('')
+      : `<tr><td>—</td></tr>`;
+
+    if (tbody) {
+      tbody.innerHTML = bodyHtml;
+    } else if (container) {
+      const headHtml = `<thead><tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr></thead>`;
+      container.innerHTML = `<table class="data-table">${headHtml}<tbody>${bodyHtml}</tbody></table>`;
+    }
+  }catch(e){
+    console.error('[recentPred] failed', e);
+    if (tbody) tbody.innerHTML = `<tr><td>—</td></tr>`;
+    else if (container) container.innerHTML = `<table class="data-table"><tbody><tr><td>—</td></tr></tbody></table>`;
+  }
 }
 
 // ====== 指標計算（前端） ======
@@ -682,7 +764,9 @@ async function enterCoin(coin){
   $("#route-coin").style.display = "";
   Object.values(state.charts).forEach(ch=> ch && ch.clear());
 
-  state.ohlc = await getOHLC(coin);
+  const kn = await fetchKlineNav(coin, 'V1');   // 或用你選的 view / ENS
+  state.ohlc = kn.ohlc;
+  state.source = 'supabase';
   await hydrateIndicators(coin, state.ohlc); // ← 這行會自動：Supabase→前端
 
   state.pred = null;
@@ -690,6 +774,11 @@ async function enterCoin(coin){
   await loadPredSample(coin);
 
   renderCoinPage(coin, state.ohlc);
+}
+
+async function fetchApiStatus(){
+  const url = `${SB_BASE}/predictor/api_status?order=asset_code.asc`;
+  return fetch(url, { headers: SB_HEADERS }).then(r=>r.json());
 }
 
 // ====== 主流程 ======
@@ -715,6 +804,21 @@ const MH = {
   charts:{ feat:null, vw:null },
   sym:'BTC', view:'V1'
 };
+
+async function fetchBacktestReport(asset='BTC'){
+  const q = new URLSearchParams({ asset_code:`eq.${asset}`, order:'view_tag.asc' });
+  const url = `${SB_BASE}/predictor/api_backtest_report?${q}`;
+  return fetch(url,{ headers:SB_HEADERS }).then(r=>r.json());
+}
+
+async function fetchTrades(asset='BTC', view='V1'){
+  const q = new URLSearchParams({
+    asset_code:`eq.${asset}`, view_tag:`eq.${view}`,
+    strategy:`eq.atr1pct_long_only`, order:'open_dt.asc'
+  });
+  const url = `${SB_BASE}/predictor/api_trades?${q}`;
+  return fetch(url,{ headers:SB_HEADERS }).then(r=>r.json());
+}
 
 /* ===================== Home：模型檔案總覽（覆蓋 renderHome） ===================== */
 
@@ -966,172 +1070,12 @@ data/backtest_summary.csv
   }
 }
 
-// === 檔案位置（依你的 repo 調整）：===
-const OOF_TXT_URL = `${DATA_BASE}/report_signal_statistics.txt`;
-const BT_TXT_URL  = `${DATA_BASE}/report_portfolio_backtest.txt`;
-
-// 解析 report_signal_statistics.txt（支援逗號或多空白分欄）
-function parseSignalStats(txt){
-  const lines = txt.trim().split(/\r?\n/).filter(Boolean);
-  if (!lines.length) return [];
-  const sep = lines[0].includes(',') ? ',' : /\s{2,}/;
-  const head = lines[0].split(sep).map(s => s.trim().toLowerCase());
-  const idx = kList => head.findIndex(h => kList.includes(h));
-
-  const iTime   = idx(['time','dt','timestamp','datetime']);
-  const iPred   = idx(['pred','prediction','dir','y_dir_pred','label']);
-  const iProb   = idx(['prob','prob_up','probability','magnitude','delta','ret','change']);
-  const iActual = idx(['actual','truth','y_dir_actual','real','gt']);
-
-  const rows = [];
-  for (let i=1;i<lines.length;i++){
-    const cells = lines[i].split(sep).map(s=>s.trim());
-    if (cells.length < 2) continue;
-    const dt  = iTime>=0 ? cells[iTime] : '';
-    let pred  = iPred>=0 ? cells[iPred].toLowerCase() : '';
-    let amp   = iProb>=0 ? Number(String(cells[iProb]).replace('%','')) : NaN; // 可能是機率或幅度
-    let actual= iActual>=0 ? (cells[iActual]||'').toLowerCase() : '';
-
-    // 正規化 up/down
-    const norm = v => /up|1|\+/.test(v) ? 'up' : /down|0|-/.test(v) ? 'down' : v;
-    pred = norm(pred); actual = norm(actual);
-
-    // 機率有時是 0~1；若看起來像 0~1 就轉成 %
-    if (Number.isFinite(amp) && amp<=1) amp = amp*100;
-
-    rows.push({ dt, pred, amp, actual });
-  }
-  return rows;
-}
-
-// 讀檔並渲染「最近 5 次預測」到 #lastPreds
-async function loadRecentPredictions(){
-  const el = document.getElementById('lastPreds');
-  if (!el) return;
-
-  try{
-    const txt = await fetch(OOF_TXT_URL, { cache: 'no-store' }).then(r=>r.text());
-    const rows = parseSignalStats(txt);
-    const latest = rows.slice(-5).reverse();
-
-    if (!latest.length){
-      el.innerHTML = `<tr><td>—</td></tr>`;
-      return;
-    }
-
-    const head = `<tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr>`;
-    const body = latest.map(r=>{
-      const dir = r.pred==='up' ? '↑ up' : '↓ down';
-      const dirCol = r.pred==='up' ? '#22c55e' : '#ef4444';
-      const realCol= r.actual==='up'? '#22c55e' : '#ef4444';
-      const ampStr = Number.isFinite(r.amp) ? `${r.amp.toFixed(2)}%` : '—';
-      return `<tr>
-        <td class="mono">${r.dt || '—'}</td>
-        <td style="color:${dirCol};font-weight:700;">${dir}</td>
-        <td class="mono">${ampStr}</td>
-        <td class="mono" style="color:${realCol};">${r.actual || '—'}</td>
-      </tr>`;
-    }).join('');
-    el.innerHTML = head + body;
-  }catch(e){
-    console.error('最近5次預測載入失敗', e);
-    el.innerHTML = `<tr><td>—</td></tr>`;
-  }
-}
-
-async function loadAllCoinsTables() {
-  try {
-    const [oofTxt, btTxt] = await Promise.all([
-      fetch(OOF_TXT_URL, { cache: "no-store" }).then(r => r.text()),
-      fetch(BT_TXT_URL,  { cache: "no-store" }).then(r => r.text()),
-    ]);
-
-    const oofTable = parseAsciiTable(oofTxt);
-    const btTable  = parseAsciiTable(btTxt);
-
-    renderTable(document.getElementById("oofAll"), oofTable);
-    renderTable(document.getElementById("btAll"),  btTable);
-  } catch (err) {
-    console.error("載入總表失敗：", err);
-  }
-}
-
-/**
- * 將像圖一那種等寬字 ASCII 表格轉成 {header:[], rows:[{col:value,...}]}
- * 規則：
- * - 自動找「第一個像表頭的行」（以連續兩個以上空白分欄）
- * - 往下讀到遇到空行/分隔線/無法對齊就停止
- * - 忽略開頭的說明行（例如 `=== OOF metrics ===`）
- */
-function parseAsciiTable(txt) {
-  const lines = txt.split(/\r?\n/).map(l => l.replace(/\t/g, "  "));
-  // 找表頭：跳過空行與說明行，只要符合「至少兩組欄位」就當表頭
-  let headerIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const L = lines[i].trim();
-    if (!L || /^===/.test(L) || /^---/.test(L)) continue;
-    const parts = L.split(/\s{2,}/).filter(Boolean);
-    if (parts.length >= 2) { headerIdx = i; break; }
-  }
-  if (headerIdx < 0) return { header: [], rows: [] };
-
-  const header = lines[headerIdx].trim().split(/\s{2,}/).map(s => s.trim());
-
-  const rows = [];
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const raw = lines[i];
-    const L = raw.trim();
-    if (!L) break;                           // 空行 → 結束
-    if (/^===/.test(L) || /^---/.test(L)) continue;
-
-    const cols = L.split(/\s{2,}/).map(s => s.trim());
-    if (cols.length < 2) break;              // 不是正常資料行 → 結束
-
-    const row = {};
-    header.forEach((h, idx) => { row[h] = (cols[idx] ?? ""); });
-    rows.push(row);
-  }
-
-  return { header, rows };
-}
-
-// 將 parse 出來的表資料畫到 <table>
-function renderTable(tableEl, tableData) {
-  if (!tableEl || !tableData || !tableData.header.length) {
-    if (tableEl) tableEl.innerHTML = `<tbody><tr><td>無資料</td></tr></tbody>`;
-    return;
-  }
-  const headerHtml = `<tr>${tableData.header.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr>`;
-  const bodyHtml = tableData.rows.map(r => {
-    const tds = tableData.header.map(h => {
-      const v = r[h] ?? "";
-      const isNum = /^-?\d+(\.\d+)?$/.test(v);
-      return `<td class="${isNum ? "num" : ""}">${escapeHtml(v)}</td>`;
-    }).join("");
-    return `<tr>${tds}</tr>`;
-  }).join("");
-
-  tableEl.innerHTML = `<thead>${headerHtml}</thead><tbody>${bodyHtml}</tbody>`;
-}
-
-// 簡單的 HTML escape（避免有符號被當標籤）
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 async function enterHome(){
   $("#route-coin").style.display = "none";
   $("#route-home").style.display = "";
   Object.values(state.charts).forEach(ch=> ch && ch.clear());
   state.charts = {};
   await renderHome();
-  // ⬇︎新增：進入 Home 後再載入兩張總表
-  await loadAllCoinsTables();
 }
 
 // 啟動
