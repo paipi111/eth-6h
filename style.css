@@ -1,0 +1,100 @@
+/* style.css (V2 - 樣式微調版) */
+:root {
+    --bg-color: #1a1a1a;
+    --card-bg-color: #2c2c2c;
+    --text-color: #e0e0e0;
+    --primary-color: #00bcd4;
+    --green-color: #4CAF50;
+    --red-color: #F44336;
+    --grey-color: #9E9E9E;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.container {
+    max-width: 1200px;
+    margin: auto;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+header h1 {
+    color: var(--primary-color);
+    margin-bottom: 5px;
+}
+
+.card {
+    background-color: var(--card-bg-color);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.kpi-grid .card { text-align: center; }
+.kpi-grid h3 { margin-top: 0; font-weight: normal; color: var(--grey-color); font-size: 1em; }
+.kpi-value { font-size: 2em; font-weight: bold; margin-bottom: 0; margin-top: 10px; line-height: 1.2; }
+.highlight .kpi-value { color: var(--primary-color); }
+
+.chart-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.chart-card {
+    display: flex;
+    flex-direction: column;
+    height: 400px;
+}
+.chart-card h3 { text-align: center; margin-top: 0; margin-bottom: 15px; }
+
+/* ---【核心修改】調整篩選器樣式 --- */
+.filter-container {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 20px; /* 調整與圖表的間距 */
+}
+.filter-btn {
+    background-color: transparent;
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+    padding: 8px 18px; /* 稍微縮小按鈕 */
+    font-size: 0.9em;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s, color 0.3s;
+}
+.filter-btn:hover { background-color: rgba(0, 188, 212, 0.2); }
+.filter-btn.active { background-color: var(--primary-color); color: var(--bg-color); font-weight: bold; }
+/* --- 修改結束 --- */
+
+
+.table-container { max-height: 500px; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #444; }
+thead tr { background-color: #383838; }
+tbody tr:hover { background-color: #333; }
+.correct-true { color: var(--green-color); }
+.correct-false { color: var(--red-color); }
+
+@media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .kpi-value { font-size: 1.8em; } .filter-container { flex-wrap: wrap; } }
