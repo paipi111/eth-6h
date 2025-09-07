@@ -100,6 +100,39 @@
     .home-split{ display:grid; gap:12px; grid-template-columns: 1fr; }
     @media (min-width: 900px){ .home-split{ grid-template-columns: 1fr 1fr; } }
     .subtitle{ font-size:14px; color:var(--muted); margin-bottom:6px; }
+
+    .table-wrap{
+      overflow:auto;
+      border:1px solid rgba(255,255,255,.08);
+      background: var(--card);
+      border-radius: 12px;
+    }
+
+    /* 統一數字對齊與寬度 */
+    .data-table{
+      width:100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+      font-size: 14px;
+    }
+
+    .data-table thead th{
+      position: sticky;
+      top: 0;
+      background: rgba(255,255,255,.06);
+      backdrop-filter: blur(2px);
+      text-align: left;
+      padding: 10px 12px;
+      white-space: nowrap;
+    }
+
+    .data-table tbody td{
+      padding: 8px 12px;
+      border-top: 1px solid rgba(255,255,255,.06);
+      white-space: nowrap;
+    }
+
+    .data-table td.num{ text-align: right; }
   </style>
 </head>
 <body data-theme="light">
@@ -186,6 +219,21 @@
           </div>
         </div>
       </section>
+
+      <!-- === All-coins reports (OOF + Backtest) === -->
+      <div class="card">
+        <div class="title">OOF 指標總表（全部幣種）</div>
+        <div class="table-wrap">
+          <table id="oofAll" class="data-table"></table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="title">回測績效總表（全部幣種）</div>
+        <div class="table-wrap">
+          <table id="btAll" class="data-table"></table>
+        </div>
+      </div>
     </div>
 
     <!-- Route: Coin page -->

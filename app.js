@@ -983,6 +983,100 @@ data/backtest_summary.csv
   }
 }
 
+// === 檔案位置（依你的 repo 調整）：===
+const OOF_TXT_URL = "/data/report_signal_statistics.txt";     // OOF metrics
+const BT_TXT_URL  = "/data/report_portfolio_backtest.txt";    // Backtest summary
+
+// 啟動：頁面載入就把兩張總表補上
+document.addEventListener("DOMContentLoaded", () => {
+  loadAllCoinsTables();
+});
+
+async function loadAllCoinsTables() {
+  try {
+    const [oofTxt, btTxt] = await Promise.all([
+      fetch(OOF_TXT_URL, { cache: "no-store" }).then(r => r.text()),
+      fetch(BT_TXT_URL,  { cache: "no-store" }).then(r => r.text()),
+    ]);
+
+    const oofTable = parseAsciiTable(oofTxt);
+    const btTable  = parseAsciiTable(btTxt);
+
+    renderTable(document.getElementById("oofAll"), oofTable);
+    renderTable(document.getElementById("btAll"),  btTable);
+  } catch (err) {
+    console.error("載入總表失敗：", err);
+  }
+}
+
+/**
+ * 將像圖一那種等寬字 ASCII 表格轉成 {header:[], rows:[{col:value,...}]}
+ * 規則：
+ * - 自動找「第一個像表頭的行」（以連續兩個以上空白分欄）
+ * - 往下讀到遇到空行/分隔線/無法對齊就停止
+ * - 忽略開頭的說明行（例如 `=== OOF metrics ===`）
+ */
+function parseAsciiTable(txt) {
+  const lines = txt.split(/\r?\n/).map(l => l.replace(/\t/g, "  "));
+  // 找表頭：跳過空行與說明行，只要符合「至少兩組欄位」就當表頭
+  let headerIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const L = lines[i].trim();
+    if (!L || /^===/.test(L) || /^---/.test(L)) continue;
+    const parts = L.split(/\s{2,}/).filter(Boolean);
+    if (parts.length >= 2) { headerIdx = i; break; }
+  }
+  if (headerIdx < 0) return { header: [], rows: [] };
+
+  const header = lines[headerIdx].trim().split(/\s{2,}/).map(s => s.trim());
+
+  const rows = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const raw = lines[i];
+    const L = raw.trim();
+    if (!L) break;                           // 空行 → 結束
+    if (/^===/.test(L) || /^---/.test(L)) continue;
+
+    const cols = L.split(/\s{2,}/).map(s => s.trim());
+    if (cols.length < 2) break;              // 不是正常資料行 → 結束
+
+    const row = {};
+    header.forEach((h, idx) => { row[h] = (cols[idx] ?? ""); });
+    rows.push(row);
+  }
+
+  return { header, rows };
+}
+
+// 將 parse 出來的表資料畫到 <table>
+function renderTable(tableEl, tableData) {
+  if (!tableEl || !tableData || !tableData.header.length) {
+    if (tableEl) tableEl.innerHTML = `<tbody><tr><td>無資料</td></tr></tbody>`;
+    return;
+  }
+  const headerHtml = `<tr>${tableData.header.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr>`;
+  const bodyHtml = tableData.rows.map(r => {
+    const tds = tableData.header.map(h => {
+      const v = r[h] ?? "";
+      const isNum = /^-?\d+(\.\d+)?$/.test(v);
+      return `<td class="${isNum ? "num" : ""}">${escapeHtml(v)}</td>`;
+    }).join("");
+    return `<tr>${tds}</tr>`;
+  }).join("");
+
+  tableEl.innerHTML = `<thead>${headerHtml}</thead><tbody>${bodyHtml}</tbody>`;
+}
+
+// 簡單的 HTML escape（避免有符號被當標籤）
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 // 啟動
 (async function boot() {
   try {
