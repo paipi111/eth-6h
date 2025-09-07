@@ -20,6 +20,15 @@ const state = {
   impSort: 'desc'
 };
 
+// ---- 統一路徑：讓 GitHub Pages / 子路徑都能正確抓到 /data ----
+const REPO_BASE = (function(){
+  // e.g. pathname: "/eth-6h/home" -> repo = "eth-6h"
+  const parts = location.pathname.split('/').filter(Boolean);
+  // GitHub Pages 的專案站通常是 /<repo>/...；個人網域或本機可能在根目錄
+  return (location.hostname.endsWith('github.io') && parts.length) ? `/${parts[0]}` : '';
+})();
+const DATA_BASE = `${REPO_BASE}/data`;
+
 // === 迷你走勢：要畫哪些指標 ===
 const SPARK_LIST = [
   ['RSI14', 'rsi14', {min:0, max:100}],
@@ -199,7 +208,7 @@ async function loadSample(){
   // 沒有 daily_sample.json 時不要整個爆掉，回傳空物件讓上層照常跑
   try {
     if (state.sample) return state.sample;
-    state.sample = await fetchJSON("./data/daily_sample.json");
+    state.sample = await fetchJSON(`${DATA_BASE}/daily_sample.json`);
     return state.sample;
   } catch {
     console.warn("[sample] ./data/daily_sample.json 不存在，返回空資料。");
@@ -347,7 +356,7 @@ async function loadPredSample(coin){
   }
 
   // fallback: sample 檔案
-  state.pred = await fetchJSON("./data/predict_sample.json").catch(()=> ({}));
+  state.pred = await fetchJSON(`${DATA_BASE}/predict_sample.json`).catch(()=> ({}));
   state.pred_source = Object.keys(state.pred||{}).length ? 'sample' : 'none'; // ★ 標記來源：sample/none
   return state.pred;
 }
@@ -667,7 +676,7 @@ function renderCoinPage(coin, rows){
     const el = $("#lastPreds");
     if (!el) return;
     try {
-      const back = await fetchJSON("./data/backtest_sample.json");
+      const back = await fetchJSON(`${DATA_BASE}/backtest_sample.json`);
       const rows = Array.isArray(back.data) ? back.data.slice(-5) : [];
       if (!rows.length) { el.innerHTML = `<tr><td>—</td></tr>`; return; }
       const head = `<tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr>`;
@@ -723,6 +732,13 @@ $("#themeToggle").addEventListener('click', ()=>{
   main(); // 重新畫（套用 tooltip 顏色）
 });
 
+// 在 app.js 前半段，全域位置（不要包在 function 裡）
+const MH = {
+  train:null, weights:null, feat:null, oof:null, bt:null,
+  charts:{ feat:null, vw:null },
+  sym:'BTC', view:'V1'
+};
+
 /* ===================== Home：模型檔案總覽（覆蓋 renderHome） ===================== */
 
 // 簡易 CSV 解析（你的檔很乾淨就夠用）
@@ -741,7 +757,7 @@ async function fetchCSV_MH(url){
 }
 
 async function mhLoadAll(){
-  const base = './data';
+  const base = DATA_BASE;
   const [train, weights, feat, oof, bt] = await Promise.all([
     fetchJSON(`${base}/train_report_multiview.json`, { cache: 'no-store' }),
     fetchJSON(`${base}/view_weights_init.json`,      { cache: 'no-store' }),
@@ -974,8 +990,8 @@ data/backtest_summary.csv
 }
 
 // === 檔案位置（依你的 repo 調整）：===
-const OOF_TXT_URL = "./data/report_signal_statistics.txt";
-const BT_TXT_URL  = "./data/report_portfolio_backtest.txt";
+const OOF_TXT_URL = `${DATA_BASE}/report_signal_statistics.txt`;
+const BT_TXT_URL  = `${DATA_BASE}/report_portfolio_backtest.txt`;
 
 async function loadAllCoinsTables() {
   try {
