@@ -148,28 +148,80 @@ function todayUTC() {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
-async function fetchTodayPrediction(asset='BTC') {
-  const base = `${SB_BASE}/predictions_daily`;           // 路徑不要帶 schema
-  const today = todayUTC();
-  // 先試今天
-  let q = new URLSearchParams({ coin:`eq.${asset}`, dt:`eq.${today}`, order:'model_tag.asc' });
-  let rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r=>r.json());
-  if (!Array.isArray(rows)) { console.error('[pred today] bad resp', rows); rows = []; }
-  // 沒有就拿最近一筆
-  if (!rows.length) {
-    q = new URLSearchParams({ coin:`eq.${asset}`, order:'dt.desc', limit:'1' });
-    rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r=>r.json());
-    if (!Array.isArray(rows)) { console.error('[pred latest] bad resp', rows); rows = []; }
+// === helpers: group predictions by date, prefer ENS ===
+function pickOneForDate(arr) {
+  // 先找 ENS
+  const ens = arr.find(r => String(r.model_tag || '').toUpperCase() === 'ENS');
+  if (ens) {
+    const prob = Number(ens.prob_up);
+    return {
+      ...ens,
+      yhat_dir: ens.yhat_dir || (prob > 0.5 ? 'up' : 'down'),
+    };
   }
+  // 沒有 ENS -> 取平均機率
+  const m = arr.reduce((s, r) => s + (Number(r.prob_up) || 0), 0) / (arr.length || 1);
+  const base = arr[0] || {};
+  return {
+    ...base,
+    prob_up: m,
+    yhat_dir: m > 0.5 ? 'up' : 'down',
+  };
+}
+
+function groupByDate(rows = []) {
+  const map = new Map();
+  rows.forEach(r => {
+    const d = r.dt;
+    if (!map.has(d)) map.set(d, []);
+    map.get(d).push(r);
+  });
+  // 由新到舊、每一天只留一筆（優先 ENS）
+  return Array.from(map.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([dt, arr]) => ({ ...pickOneForDate(arr), dt }));
+}
+
+async function fetchTodayPrediction(asset = 'BTC') {
+  const base = `${SB_BASE}/predictor.predictions_daily`;
+
+  // 1) 先找最新 ENS
+  let q = new URLSearchParams({
+    coin: `eq.${asset}`,
+    model_tag: 'eq.ENS',
+    order: 'dt.desc',
+    limit: '1',
+  });
+  let rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r => r.json());
+
+  // 2) 沒有 ENS -> 最新任一模型
+  if (!rows.length) {
+    q = new URLSearchParams({ coin: `eq.${asset}`, order: 'dt.desc', limit: '1' });
+    rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r => r.json());
+  }
+
   const r = rows[0];
-  return r ? { prob_up:+r.prob_up, dir:r.yhat_dir, model:r.model_tag } : null;
+  if (!r) return null;
+  const prob = Number(r.prob_up);
+  return {
+    prob_up: prob,
+    dir: r.yhat_dir || (prob > 0.5 ? 'up' : 'down'),
+    model: r.model_tag,
+    dt: r.dt,
+  };
 }
 
 // 右側「最近 5 次預測」：直接抓近 5 天
 async function fetchRecentPredictions(asset = 'BTC', n = 5) {
-  const q = new URLSearchParams({ coin:`eq.${asset}`, order:'dt.desc', limit:String(n) });
-  const url = `${SB_BASE}/predictions_daily?${q}`;
-  return fetch(url, { headers: SB_HEADERS }).then(r => r.json());
+  const base = `${SB_BASE}/predictor.predictions_daily`;
+  // 抓多一點，避免被不同 model 佔滿
+  const q = new URLSearchParams({
+    coin: `eq.${asset}`,
+    order: 'dt.desc,model_tag.asc',
+    limit: String(n * 6),
+  });
+  const rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r => r.json());
+  return groupByDate(rows).slice(0, n);
 }
 
 // ====== 路由 ======
@@ -387,9 +439,9 @@ async function fetchIndicatorsFromSB(coin) {
 
 // ====== 模型預測（先用 sample，可換成你的 API） ======
 // 右側摘要用（取今天）
-async function loadPredSample(coin){
+async function loadPredSample(coin) {
   try {
-    const p = await fetchTodayPrediction(coin, 'ENS'); // 或 V1/V2...
+    const p = await fetchTodayPrediction(coin);
     if (p) {
       state.pred = {
         y_pred: p.prob_up,          // 0~1
@@ -400,16 +452,16 @@ async function loadPredSample(coin){
       state.pred_source = 'supabase';
       return state.pred;
     }
-  } catch(e){
+  } catch (e) {
     console.warn('[pred] fetchTodayPrediction failed', e);
   }
-  state.pred = {}; state.pred_source = 'none';  // 這樣右側「模型資料」會顯示「未取得」
+  state.pred = {}; state.pred_source = 'none';
   return state.pred;
 }
 
-async function loadRecentPredictions(){
+async function loadRecentPredictions() {
   let tbody = document.querySelector('#recentPredTable tbody') 
-           || document.getElementById('lastPreds');
+            || document.getElementById('lastPreds');
   let container = tbody;
   if (container && container.tagName !== 'TBODY') {
     if (container.tagName === 'TABLE') {
@@ -419,18 +471,19 @@ async function loadRecentPredictions(){
     }
   }
 
-  try{
-    const rows = await fetchRecentPredictions(state.route || 'BTC', 5);
+  try {
+    const rows = await fetchRecentPredictions(state.route || 'BTC', 5); // ← 已合併、最多 5 天
     const bodyHtml = (rows && rows.length)
-      ? rows.map(r=>{
-          const dir = String(r.yhat_dir).toLowerCase()==='up' ? '↑ up' : '↓ down';
-          const dirCol = /up/i.test(r.yhat_dir) ? '#22c55e' : '#ef4444';
-          const p = Number(r.prob_up);
-          const v = Number.isFinite(p) ? (p<=1? p*100 : p) : NaN;
+      ? rows.map(r => {
+          const prob = Number(r.prob_up);
+          const probPct = Number.isFinite(prob) ? (prob <= 1 ? prob * 100 : prob) : NaN;
+          const isUp = prob > 0.5;
+          const dir = isUp ? '↑ up' : '↓ down';
+          const dirCol = isUp ? '#22c55e' : '#ef4444';
           return `<tr>
             <td class="mono">${r.dt}</td>
             <td style="color:${dirCol};font-weight:700;">${dir}</td>
-            <td class="mono">${Number.isFinite(v)? v.toFixed(2)+'%' : '—'}</td>
+            <td class="mono">${Number.isFinite(probPct) ? probPct.toFixed(1) + '%' : '—'}</td>
             <td class="mono">—</td>
           </tr>`;
         }).join('')
@@ -442,7 +495,7 @@ async function loadRecentPredictions(){
       const headHtml = `<thead><tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr></thead>`;
       container.innerHTML = `<table class="data-table">${headHtml}<tbody>${bodyHtml}</tbody></table>`;
     }
-  }catch(e){
+  } catch (e) {
     console.error('[recentPred] failed', e);
     if (tbody) tbody.innerHTML = `<tr><td>—</td></tr>`;
     else if (container) container.innerHTML = `<table class="data-table"><tbody><tr><td>—</td></tr></tbody></table>`;
@@ -728,6 +781,21 @@ function renderCoinPage(coin, rows){
     const yEl = document.getElementById('yPred');
     if (yEl) yEl.textContent = (typeof yPred === 'number') ? (yPred*100).toFixed(1) + '%' : '—';
 
+    const predBox = document.getElementById('predSummary');
+    if (predBox) {
+      let html;
+      if (Number.isFinite(yPred)) {
+        const probPct = yPred <= 1 ? yPred * 100 : yPred;
+        const dt = state.pred?.dt ? `（${state.pred.dt}）` : '';
+        const model = state.pred?.model?.name ? ` · ${state.pred.model.name}` : '';
+        html = `上漲機率：<span class="mono" style="font-size:22px;font-weight:800;">${prob}%</span><br>
+                時窗：${horizonH}h${model} ${dt}`;
+      } else {
+        html = `上漲機率：—`;
+      }
+      predBox.innerHTML = html;
+    }
+
     // API 狀態指示燈
     const dot = document.getElementById('apiDot');
     const apiLabel = document.getElementById('apiLabel');
@@ -739,20 +807,6 @@ function renderCoinPage(coin, rows){
         dot.classList.remove('ok'); dot.classList.add('warn');
         apiLabel.textContent = '使用假資料（sample）';
       }
-    }
-
-    // 預測摘要（箭頭 + 百分比 + CI）
-    const predBox = document.getElementById('predSummary');
-    if (predBox) {
-      let html;
-      if (Number.isFinite(yPred)) {
-        const prob = (yPred * 100).toFixed(1);
-        html = `上漲機率：<span class="mono" style="font-size:22px;font-weight:800;">${prob}%</span><br>
-                時窗：${horizonH}h`;
-      } else {
-        html = `上漲機率：—`;
-      }
-      predBox.innerHTML = html;
     }
   })();
 
