@@ -133,6 +133,17 @@
     }
 
     .data-table td.num{ text-align: right; }
+    #homeMetrics {
+      display: flex;
+      gap: 16px;          /* 左右間隔 */
+      flex-wrap: wrap;    /* 螢幕太窄時自動換行 */
+      margin-top: 16px;
+    }
+
+    #homeMetrics .card {
+      flex: 1;            /* 平均分配寬度 */
+      min-width: 320px;   /* 確保手機上不會太小 */
+    }
   </style>
 </head>
 <body data-theme="light">
@@ -221,17 +232,19 @@
       </section>
 
       <!-- === All-coins reports (OOF + Backtest) === -->
-      <div class="card">
-        <div class="title">OOF 指標總表（全部幣種）</div>
-        <div class="table-wrap">
-          <table id="oofAll" class="data-table"></table>
+      <div id="homeMetrics">
+        <div class="card">
+          <div class="title">OOF 指標總表（全部幣種）</div>
+          <div class="table-wrap">
+            <table id="oofAll" class="data-table"></table>
+          </div>
         </div>
-      </div>
 
-      <div class="card">
-        <div class="title">回測績效總表（全部幣種）</div>
-        <div class="table-wrap">
-          <table id="btAll" class="data-table"></table>
+        <div class="card">
+          <div class="title">回測績效總表（全部幣種）</div>
+          <div class="table-wrap">
+            <table id="btAll" class="data-table"></table>
+          </div>
         </div>
       </div>
     </div>
