@@ -183,7 +183,7 @@ function groupByDate(rows) {
 }
 
 async function fetchTodayPrediction(asset = 'BTC') {
-  const base = `${SB_BASE}/predictor.predictions_daily`;
+  const base = `${SB_BASE}/predictions_daily`;
 
   // 1) 先找最新 ENS
   let q = new URLSearchParams({
@@ -213,7 +213,7 @@ async function fetchTodayPrediction(asset = 'BTC') {
 
 // 右側「最近 5 次預測」：直接抓近 5 天
 async function fetchRecentPredictions(asset = 'BTC', n = 5) {
-  const base = `${SB_BASE}/predictor.predictions_daily`;
+  const base = `${SB_BASE}/predictions_daily`;
   const q = new URLSearchParams({
     coin: `eq.${asset}`,
     order: 'dt.desc,model_tag.asc',
@@ -242,7 +242,7 @@ async function fetchKlineNav(asset = 'BTC', view = 'V1') {
     order:      'dt.asc',
   });
   // 這行改回 predictor 子路徑
-  const url = `${SB_BASE}/predictor/api_kline_nav?${q}`;
+  const url = `${SB_BASE}/api_kline_nav?${q}`;
   const rows = await fetch(url, { headers: SB_HEADERS }).then(r => r.json());
   if (!Array.isArray(rows)) {
     console.error("[fetchKlineNav] 非陣列回應：", rows);
@@ -837,7 +837,7 @@ async function enterCoin(coin){
 }
 
 async function fetchApiStatus(){
-  const url = `${SB_BASE}/predictor/api_status?order=asset_code.asc`;
+  const url = `${SB_BASE}/api_status?order=asset_code.asc`;
   return fetch(url, { headers: SB_HEADERS }).then(r=>r.json());
 }
 
@@ -867,7 +867,7 @@ const MH = {
 
 async function fetchBacktestReport(asset='BTC'){
   const q = new URLSearchParams({ asset_code:`eq.${asset}`, order:'view_tag.asc' });
-  const url = `${SB_BASE}/predictor/api_backtest_report?${q}`;
+  const url = `${SB_BASE}/api_backtest_report?${q}`;
   return fetch(url,{ headers:SB_HEADERS }).then(r=>r.json());
 }
 
@@ -876,7 +876,7 @@ async function fetchTrades(asset='BTC', view='V1'){
     asset_code:`eq.${asset}`, view_tag:`eq.${view}`,
     strategy:`eq.atr1pct_long_only`, order:'open_dt.asc'
   });
-  const url = `${SB_BASE}/predictor/api_trades?${q}`;
+  const url = `${SB_BASE}/api_trades?${q}`;
   return fetch(url,{ headers:SB_HEADERS }).then(r=>r.json());
 }
 
