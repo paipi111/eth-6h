@@ -777,18 +777,20 @@ function renderCoinPage(coin, rows){
 
   // ===== 右側：y_pred / API 狀態 / 預測摘要（升級：箭頭+百分比） =====
   (() => {
-    // 顯示 y_pred
+    // 顯示 y_pred（下方大字）
     const yEl = document.getElementById('yPred');
-    if (yEl) yEl.textContent = (typeof yPred === 'number') ? (yPred*100).toFixed(1) + '%' : '—';
+    if (yEl) yEl.textContent =
+      (typeof yPred === 'number') ? ((yPred <= 1 ? yPred*100 : yPred).toFixed(1) + '%') : '—';
 
+    // 預測摘要卡片（右側）
     const predBox = document.getElementById('predSummary');
     if (predBox) {
       let html;
       if (Number.isFinite(yPred)) {
-        const probPct = yPred <= 1 ? yPred * 100 : yPred;
+        const probPct = (yPred <= 1 ? yPred * 100 : yPred);
         const dt = state.pred?.dt ? `（${state.pred.dt}）` : '';
         const model = state.pred?.model?.name ? ` · ${state.pred.model.name}` : '';
-        html = `上漲機率：<span class="mono" style="font-size:22px;font-weight:800;">${prob}%</span><br>
+        html = `上漲機率：<span class="mono" style="font-size:22px;font-weight:800;">${probPct.toFixed(1)}%</span><br>
                 時窗：${horizonH}h${model} ${dt}`;
       } else {
         html = `上漲機率：—`;
