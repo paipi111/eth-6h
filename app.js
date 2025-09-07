@@ -184,8 +184,12 @@ async function fetchKlineNav(asset = 'BTC', view = 'V1') {
     strategy:   `eq.atr1pct_long_only`,
     order:      'dt.asc',
   });
-  const url = `${SB_BASE}/predictor/api_kline_nav?${q}`;
+  const url = `${SB_BASE}/api_kline_nav?${q}`;
   const rows = await fetch(url, { headers: SB_HEADERS }).then(r => r.json());
+  if (!Array.isArray(rows)) {
+    console.error("[fetchKlineNav] 非陣列回應：", rows);
+    return { ohlc: [], nav: [], rows: [] };
+  }
   // 映射到你現有的 OHLC 結構
   const ohlc = rows.map(r => ({
     t: r.dt, o: +r.open, h: +r.high, l: +r.low, c: +r.close, v: NaN
