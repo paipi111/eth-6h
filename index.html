@@ -303,9 +303,19 @@
           </div>
 
           <!-- 最近 5 次預測 -->
-          <div class="subcard" style="margin-top:12px;">
-            <div class="title" style="font-size:16px;">最近 5 次預測</div>
-            <table id="lastPreds" class="metrics"></table>
+          <div class="card">
+            <div class="title">最近 5 次預測</div>
+            <table id="recentPredTable" class="data-table">
+              <thead>
+                <tr>
+                  <th>時間</th>
+                  <th>預測</th>
+                  <th>幅度</th>
+                  <th>真實</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
           </div>
         </div>
       </div>

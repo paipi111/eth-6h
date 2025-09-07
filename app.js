@@ -671,31 +671,8 @@ function renderCoinPage(coin, rows){
   // 更新「模型資料」指示燈
   if (typeof renderModelStatus === 'function') renderModelStatus();
 
-  // ===== 新增：最近 5 次預測表 =====
-  (async () => {
-    const el = $("#lastPreds");
-    if (!el) return;
-    try {
-      const back = await fetchJSON(`${DATA_BASE}/backtest_sample.json`);
-      const rows = Array.isArray(back.data) ? back.data.slice(-5) : [];
-      if (!rows.length) { el.innerHTML = `<tr><td>—</td></tr>`; return; }
-      const head = `<tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr>`;
-      const body = rows.map(r=>{
-        const t = (r.timestamp||'').slice(5,16).replace('T',' ');
-        const dir = r.pred_dir==='up' ? '↑ up' : '↓ down';
-        const col = r.pred_dir==='up' ? 'style="color:#22c55e;font-weight:700;"' : 'style="color:#ef4444;font-weight:700;"';
-        return `<tr>
-          <td class="mono">${t}</td>
-          <td ${col}>${dir}</td>
-          <td class="mono">${(+r.delta_pred).toFixed(2)}%</td>
-          <td class="mono">${r.actual_dir}</td>
-        </tr>`;
-      }).join("");
-      el.innerHTML = head + body;
-    } catch {
-      el.innerHTML = `<tr><td>—</td></tr>`;
-    }
-  })();
+  loadRecentPredictions();
+  
   renderSparks(rows);
 }
 
@@ -992,6 +969,75 @@ data/backtest_summary.csv
 // === 檔案位置（依你的 repo 調整）：===
 const OOF_TXT_URL = `${DATA_BASE}/report_signal_statistics.txt`;
 const BT_TXT_URL  = `${DATA_BASE}/report_portfolio_backtest.txt`;
+
+// 解析 report_signal_statistics.txt（支援逗號或多空白分欄）
+function parseSignalStats(txt){
+  const lines = txt.trim().split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return [];
+  const sep = lines[0].includes(',') ? ',' : /\s{2,}/;
+  const head = lines[0].split(sep).map(s => s.trim().toLowerCase());
+  const idx = kList => head.findIndex(h => kList.includes(h));
+
+  const iTime   = idx(['time','dt','timestamp','datetime']);
+  const iPred   = idx(['pred','prediction','dir','y_dir_pred','label']);
+  const iProb   = idx(['prob','prob_up','probability','magnitude','delta','ret','change']);
+  const iActual = idx(['actual','truth','y_dir_actual','real','gt']);
+
+  const rows = [];
+  for (let i=1;i<lines.length;i++){
+    const cells = lines[i].split(sep).map(s=>s.trim());
+    if (cells.length < 2) continue;
+    const dt  = iTime>=0 ? cells[iTime] : '';
+    let pred  = iPred>=0 ? cells[iPred].toLowerCase() : '';
+    let amp   = iProb>=0 ? Number(String(cells[iProb]).replace('%','')) : NaN; // 可能是機率或幅度
+    let actual= iActual>=0 ? (cells[iActual]||'').toLowerCase() : '';
+
+    // 正規化 up/down
+    const norm = v => /up|1|\+/.test(v) ? 'up' : /down|0|-/.test(v) ? 'down' : v;
+    pred = norm(pred); actual = norm(actual);
+
+    // 機率有時是 0~1；若看起來像 0~1 就轉成 %
+    if (Number.isFinite(amp) && amp<=1) amp = amp*100;
+
+    rows.push({ dt, pred, amp, actual });
+  }
+  return rows;
+}
+
+// 讀檔並渲染「最近 5 次預測」到 #lastPreds
+async function loadRecentPredictions(){
+  const el = document.getElementById('lastPreds');
+  if (!el) return;
+
+  try{
+    const txt = await fetch(OOF_TXT_URL, { cache: 'no-store' }).then(r=>r.text());
+    const rows = parseSignalStats(txt);
+    const latest = rows.slice(-5).reverse();
+
+    if (!latest.length){
+      el.innerHTML = `<tr><td>—</td></tr>`;
+      return;
+    }
+
+    const head = `<tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr>`;
+    const body = latest.map(r=>{
+      const dir = r.pred==='up' ? '↑ up' : '↓ down';
+      const dirCol = r.pred==='up' ? '#22c55e' : '#ef4444';
+      const realCol= r.actual==='up'? '#22c55e' : '#ef4444';
+      const ampStr = Number.isFinite(r.amp) ? `${r.amp.toFixed(2)}%` : '—';
+      return `<tr>
+        <td class="mono">${r.dt || '—'}</td>
+        <td style="color:${dirCol};font-weight:700;">${dir}</td>
+        <td class="mono">${ampStr}</td>
+        <td class="mono" style="color:${realCol};">${r.actual || '—'}</td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = head + body;
+  }catch(e){
+    console.error('最近5次預測載入失敗', e);
+    el.innerHTML = `<tr><td>—</td></tr>`;
+  }
+}
 
 async function loadAllCoinsTables() {
   try {
