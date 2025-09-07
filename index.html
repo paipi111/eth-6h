@@ -90,6 +90,16 @@
     }
     /* ✅ 新增：更貼齊左右邊 */
     .sparks{ padding:12px 0 16px; }
+    .kpis{ display:grid; gap:10px; grid-template-columns: repeat(6, minmax(130px,1fr)); }
+    @media (max-width: 900px){ .kpis{ grid-template-columns: repeat(2, 1fr); } }
+    .kpi{ background:var(--card); border:1px solid rgba(148,163,184,.2); border-radius:12px; padding:12px; }
+    .kpi .label{ font-size:12px; color:var(--muted); }
+    .kpi .value{ font-size:22px; font-weight:800; letter-spacing:.3px; }
+
+    .tablewrap{ max-height:300px; overflow:auto; border:1px solid rgba(148,163,184,.2); border-radius:12px; }
+    .home-split{ display:grid; gap:12px; grid-template-columns: 1fr; }
+    @media (min-width: 900px){ .home-split{ grid-template-columns: 1fr 1fr; } }
+    .subtitle{ font-size:14px; color:var(--muted); margin-bottom:6px; }
   </style>
 </head>
 <body data-theme="light">
@@ -114,19 +124,69 @@
 
     <!-- Route: Home（模型資訊） -->
     <div id="route-home" style="display:none;">
-      <div class="row">
-        <div class="card" style="flex:1;">
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <div class="title">模型重要度</div>
-            <button id="impSortBtn" class="btn" title="切換升/降序">排序：降序</button>
-          </div>
-          <div id="impChart" style="height:300px;"></div>
+      <!-- 控制列 -->
+      <div class="card" style="margin-bottom:12px;">
+        <div class="row" style="gap:8px; align-items:center;">
+          <div class="title" style="font-size:16px;">📊 模型總覽（Home）</div>
+          <div class="muted" style="margin-left:auto;">資料來源：/data/ 靜態檔</div>
         </div>
-        <div class="card" style="flex:1;">
-          <div class="title">最新特徵</div>
-          <div class="grid3" id="featGrid"></div>
+        <div class="row" style="gap:8px; align-items:center;">
+          <label class="muted">幣種</label>
+          <select id="mhSym">
+            <option>BTC</option><option>ETH</option><option>BNB</option>
+            <option>ADA</option><option>XRP</option><option>DOGE</option><option>SOL</option>
+          </select>
+          <label class="muted">View</label>
+          <select id="mhView">
+            <option>V1</option><option>V2</option><option>V3</option><option>V4</option>
+          </select>
         </div>
       </div>
+
+      <!-- KPI -->
+      <section class="kpis">
+        <div class="kpi"><div class="label">Dir F1</div><div id="mhDirF1" class="value">—</div></div>
+        <div class="kpi"><div class="label">Dir AUC</div><div id="mhDirAUC" class="value">—</div></div>
+        <div class="kpi"><div class="label">Dir BACC</div><div id="mhDirBACC" class="value">—</div></div>
+        <div class="kpi"><div class="label">Vol ACC</div><div id="mhVolACC" class="value">—</div></div>
+        <div class="kpi"><div class="label">Vol Macro-F1</div><div id="mhVolF1" class="value">—</div></div>
+        <div class="kpi"><div class="label">View 權重</div><div id="mhViewW" class="value">—</div></div>
+      </section>
+
+      <div style="height:2px;"></div>
+
+      <!-- 兩張圖：OOS特徵重要性 + View 權重 -->
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div class="subtitle">OOS 特徵重要性（Top 20）</div>
+          <div id="mhFeat" style="height:320px;"></div>
+        </div>
+        <div class="card" style="flex:1;">
+          <div class="subtitle">View 權重（當前幣種）</div>
+          <div id="mhViewChart" style="height:320px;"></div>
+        </div>
+      </div>
+
+      <!-- 表格：OOF CV（方向） + 回測摘要 -->
+      <section class="home-split" style="margin-top:2px;">
+        <div class="card">
+          <div class="subtitle">OOF 交叉驗證（方向 Dir）</div>
+          <div class="tablewrap">
+            <table class="metrics" id="mhOOF">
+              <thead></thead><tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="subtitle">回測績效摘要</div>
+          <div class="tablewrap">
+            <table class="metrics" id="mhBT">
+              <thead></thead><tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
 
       <!-- 新增：資產走勢 vs 模型疊加線 -->
       <div class="row">
