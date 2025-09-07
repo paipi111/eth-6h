@@ -169,16 +169,16 @@ function pickOneForDate(arr) {
   };
 }
 
-function groupByDate(rows = []) {
+function groupByDate(rows) {
+  if (!Array.isArray(rows)) return [];
   const map = new Map();
   rows.forEach(r => {
     const d = r.dt;
     if (!map.has(d)) map.set(d, []);
     map.get(d).push(r);
   });
-  // 由新到舊、每一天只留一筆（優先 ENS）
   return Array.from(map.entries())
-    .sort((a, b) => b[0].localeCompare(a[0]))
+    .sort((a,b) => b[0].localeCompare(a[0]))
     .map(([dt, arr]) => ({ ...pickOneForDate(arr), dt }));
 }
 
@@ -214,13 +214,16 @@ async function fetchTodayPrediction(asset = 'BTC') {
 // 右側「最近 5 次預測」：直接抓近 5 天
 async function fetchRecentPredictions(asset = 'BTC', n = 5) {
   const base = `${SB_BASE}/predictor.predictions_daily`;
-  // 抓多一點，避免被不同 model 佔滿
   const q = new URLSearchParams({
     coin: `eq.${asset}`,
     order: 'dt.desc,model_tag.asc',
     limit: String(n * 6),
   });
-  const rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r => r.json());
+  let rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r => r.json());
+  if (!Array.isArray(rows)) {
+    console.error('[fetchRecentPredictions] 非陣列回應：', rows);
+    rows = [];
+  }
   return groupByDate(rows).slice(0, n);
 }
 
@@ -238,18 +241,15 @@ async function fetchKlineNav(asset = 'BTC', view = 'V1') {
     strategy:   `eq.atr1pct_long_only`,
     order:      'dt.asc',
   });
-  const url = `${SB_BASE}/api_kline_nav?${q}`;
+  // 這行改回 predictor 子路徑
+  const url = `${SB_BASE}/predictor/api_kline_nav?${q}`;
   const rows = await fetch(url, { headers: SB_HEADERS }).then(r => r.json());
   if (!Array.isArray(rows)) {
     console.error("[fetchKlineNav] 非陣列回應：", rows);
     return { ohlc: [], nav: [], rows: [] };
   }
-  // 映射到你現有的 OHLC 結構
-  const ohlc = rows.map(r => ({
-    t: r.dt, o: +r.open, h: +r.high, l: +r.low, c: +r.close, v: NaN
-  }));
-  // nav_usd 留給副圖或次軸
-  const nav = rows.map(r => +r.nav_usd);
+  const ohlc = rows.map(r => ({ t:r.dt, o:+r.open, h:+r.high, l:+r.low, c:+r.close, v:NaN }));
+  const nav  = rows.map(r => +r.nav_usd);
   return { ohlc, nav, rows };
 }
 
