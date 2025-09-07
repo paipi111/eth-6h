@@ -199,6 +199,18 @@
 
       <div style="height:2px;"></div>
 
+      <!-- 兩張圖：OOS特徵重要性 + View 權重 -->
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div class="subtitle">OOS 特徵重要性（Top 20）</div>
+          <div id="mhFeat" style="height:320px;"></div>
+        </div>
+        <div class="card" style="flex:1;">
+          <div class="subtitle">View 權重（當前幣種）</div>
+          <div id="mhViewChart" style="height:320px;"></div>
+        </div>
+      </div>
+
       <!-- 表格：OOF CV（方向） + 回測摘要 -->
       <section class="home-split" style="margin-top:2px;">
         <div class="card">
@@ -218,23 +230,6 @@
           </div>
         </div>
       </section>
-
-      <!-- === All-coins reports (OOF + Backtest) === -->
-      <div id="homeMetrics">
-        <div class="card">
-          <div class="title">OOF 指標總表（全部幣種）</div>
-          <div class="table-wrap">
-            <table id="oofAll" class="data-table"></table>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="title">回測績效總表（全部幣種）</div>
-          <div class="table-wrap">
-            <table id="btAll" class="data-table"></table>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Route: Coin page -->
