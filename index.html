@@ -59,25 +59,37 @@
       color: #60a5fa;  /* 高亮藍色 */
       border-color: #60a5fa;
     }
-    .sparks {
-      display: flex;              /* 改成橫向排列 */
-      flex-wrap: nowrap;          /* 不換行 */
-      gap: 12px;                  /* 間距大一點 */
-      overflow-x: auto;           /* 超出時可橫向捲動 */
-      padding-bottom: 8px;
+    /* 迷你走勢：整排 + 可橫向捲動 + 卡片變大 */
+    .sparks{
+      display:flex;
+      flex-wrap:nowrap;        /* 不換行，一整排 */
+      gap:12px;
+      overflow-x:auto;         /* 超出時可左右捲動 */
+      padding:8px 4px 12px;
+      scroll-snap-type:x mandatory;   /* 滑動手感更順 */
+    }
+    .sparks::-webkit-scrollbar{ height:8px; }
+    .sparks::-webkit-scrollbar-thumb{
+      background:rgba(148,163,184,.4);
+      border-radius:9999px;
     }
 
-    .spark-card {
-      flex: 0 0 180px;            /* 每個卡片固定寬度，比現在大 */
-      border: 1px solid rgba(148,163,184,.25);
-      border-radius: 12px;
-      padding: 8px;
-      background: color-mix(in oklab, var(--card) 92%, transparent);
+    .spark-card{
+      flex:0 0 220px;          /* 每張卡固定寬度（可調） */
+      border:1px solid rgba(148,163,184,.25);
+      border-radius:12px;
+      padding:10px;
+      background:color-mix(in oklab, var(--card) 92%, transparent);
+      scroll-snap-align:start;
     }
-
-    .spark-card .spark {
-      height: 100px;              /* 圖表高度拉大 */
+    .spark-card .spark{ height:120px; }  /* 圖高加大（可調） */
+    /* ✅ 新增：寬螢幕時更大 */
+    @media (min-width: 1024px){
+      .spark-card{ flex-basis:260px; }
+      .spark-card .spark{ height:140px; }
     }
+    /* ✅ 新增：更貼齊左右邊 */
+    .sparks{ padding:12px 0 16px; }
   </style>
 </head>
 <body data-theme="light">
@@ -215,12 +227,13 @@
             <div class="title" style="font-size:16px;">最近 5 次預測</div>
             <table id="lastPreds" class="metrics"></table>
           </div>
-
-          <!-- 迷你走勢（Sparklines） -->
-          <div class="subcard" style="margin-top:12px;">
-            <div class="title" style="font-size:16px;">📈 指標迷你走勢</div>
-            <div id="indSparks" class="sparks"></div>
-          </div>
+        </div>
+      </div>
+      <!-- 迷你走勢：下方獨立一整格 -->
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div class="title">📈 指標迷你走勢</div>
+          <div id="indSparks" class="sparks"></div>
         </div>
       </div>
 
