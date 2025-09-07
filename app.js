@@ -706,14 +706,6 @@ async function enterCoin(coin){
   renderCoinPage(coin, state.ohlc);
 }
 
-async function enterHome(){
-  $("#route-coin").style.display = "none";
-  $("#route-home").style.display = "";
-  Object.values(state.charts).forEach(ch=> ch && ch.clear());
-  state.charts = {};
-  await renderHome();
-}
-
 // ====== 主流程 ======
 async function main(){
   state.route = currentRoute();
@@ -742,19 +734,17 @@ function parseCSV_MH(text){
     const o={}; head.forEach((h,i)=> o[h]=cells[i]); return o;
   });
 }
-async function fetchCSV_MH(url){ const r=await fetch(url); return parseCSV_MH(await r.text()); }
 
-const MH = {
-  train:null, weights:null, feat:null, oof:null, bt:null,
-  charts:{ feat:null, vw:null },
-  sym:'BTC', view:'V1'
-};
+async function fetchCSV_MH(url){
+  const r = await fetch(url, { cache: 'no-store' });   // ⬅️ 加這行
+  return parseCSV_MH(await r.text());
+}
 
 async function mhLoadAll(){
   const base = './data';
   const [train, weights, feat, oof, bt] = await Promise.all([
-    fetchJSON(`${base}/train_report_multiview.json`),
-    fetchJSON(`${base}/view_weights_init.json`),
+    fetchJSON(`${base}/train_report_multiview.json`, { cache: 'no-store' }),
+    fetchJSON(`${base}/view_weights_init.json`,      { cache: 'no-store' }),
     fetchCSV_MH(`${base}/oos_feature_importance.csv`),
     fetchCSV_MH(`${base}/oof_metrics.csv`),
     fetchCSV_MH(`${base}/backtest_summary.csv`)
@@ -984,13 +974,8 @@ data/backtest_summary.csv
 }
 
 // === 檔案位置（依你的 repo 調整）：===
-const OOF_TXT_URL = "/data/report_signal_statistics.txt";     // OOF metrics
-const BT_TXT_URL  = "/data/report_portfolio_backtest.txt";    // Backtest summary
-
-// 啟動：頁面載入就把兩張總表補上
-document.addEventListener("DOMContentLoaded", () => {
-  loadAllCoinsTables();
-});
+const OOF_TXT_URL = "./data/report_signal_statistics.txt";
+const BT_TXT_URL  = "./data/report_portfolio_backtest.txt";
 
 async function loadAllCoinsTables() {
   try {
@@ -1075,6 +1060,16 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+async function enterHome(){
+  $("#route-coin").style.display = "none";
+  $("#route-home").style.display = "";
+  Object.values(state.charts).forEach(ch=> ch && ch.clear());
+  state.charts = {};
+  await renderHome();
+  // ⬇︎新增：進入 Home 後再載入兩張總表
+  await loadAllCoinsTables();
 }
 
 // 啟動
