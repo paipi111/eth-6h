@@ -188,47 +188,6 @@
       </section>
     </div>
 
-      <!-- 新增：資產走勢 vs 模型疊加線 -->
-      <div class="row">
-        <div class="card">
-          <div class="title">資產走勢 vs 模型預測（累積報酬）</div>
-          <div id="overlayChart" style="height:300px;"></div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="card">
-          <div class="title">模型資訊</div>
-          <div id="modelInfo" class="mono" style="white-space:pre-wrap; margin-top:8px;"></div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="card" style="flex:1;">
-          <div class="title">最近 N 次預測回測</div>
-          <div class="muted">資料來源：sample（或你的 API）。</div>
-          <div id="cmChart" style="height:320px; margin-top:8px;"></div>
-        </div>
-
-        <div class="card" style="flex:1;">
-          <!-- 新增：圓形指標小卡 -->
-          <div class="grid2">
-            <div style="text-align:center;">
-              <div class="muted">Accuracy</div>
-              <div id="accCircle" class="circle">—</div>
-            </div>
-            <div style="text-align:center;">
-              <div class="muted">F1 Score</div>
-              <div id="f1Circle" class="circle">—</div>
-            </div>
-          </div>
-
-          <div class="title" style="margin-top:12px;">回測指標（表格）</div>
-          <table class="metrics" id="btMetrics"></table>
-        </div>
-      </div>
-    </div>
-
     <!-- Route: Coin page -->
     <div id="route-coin" style="display:none;">
       <div class="row" style="align-items:flex-start;">
