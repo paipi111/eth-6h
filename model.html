@@ -26,6 +26,12 @@
     .red { background:rgba(239,68,68,.15); color:#fca5a5; }
     .gray { background:rgba(148,163,184,.15); color:#cbd5e1; }
     .footer { text-align:center; font-size:12px; margin: 24px auto; color:var(--muted); }
+    /* === 新增：右上角 90 天摘要小字區塊 === */
+    #txtSummary { margin-top:6px; line-height:1.4; font-size:13px; }
+    #txtSummary .sep { opacity:.6; margin:0 6px; }
+    /* === 新增：原文報告 pre 外觀 === */
+    pre.plain { white-space:pre-wrap; margin:8px 0 0; }
+    details summary { cursor:pointer; user-select:none; }
   </style>
 </head>
 <body>
@@ -35,7 +41,11 @@
         <div class="title">XGBoost 策略組合績效報告</div>
         <div class="muted">模型期間、指標與回測日誌僅示意，可直接接你的 API / Supabase 資料表。</div>
       </div>
-      <a class="muted" href="./index.html">← 回到主頁</a>
+      <!-- ★ 右上角：回首頁 + 90天文字報告摘要（整合） -->
+      <div style="text-align:right;">
+        <a class="muted" href="./index.html">← 回到主頁</a>
+        <div id="txtSummary" class="mono muted"><!-- 由 JS 動態填入 --></div>
+      </div>
     </div>
 
     <!-- KPI -->
@@ -61,9 +71,23 @@
       <div class="muted" style="font-weight:700;">詳細交易日誌</div>
       <table class="tbl mono" id="log"></table>
     </div>
+
     <div class="card" style="margin-top:12px;">
-        <div class="muted" style="font-weight:700;">回測報告</div>
-        <table class="tbl mono" id="reportTbl"></table>
+      <div class="muted" style="font-weight:700;">回測報告</div>
+      <table class="tbl mono" id="reportTbl"></table>
+    </div>
+
+    <!-- ★ 新增：90天文字報告（原文，可收合） -->
+    <div class="card" style="margin-top:12px;">
+      <div class="muted" style="font-weight:700;">90 天文字報告（原文）</div>
+      <details open style="margin-top:6px;">
+        <summary class="muted">Signal Quality Statistics Report（信號品質統計）</summary>
+        <pre id="txtRawSignal" class="mono plain">—</pre>
+      </details>
+      <details open style="margin-top:8px;">
+        <summary class="muted">Portfolio Backtest Report（投資組合回測）</summary>
+        <pre id="txtRawPortfolio" class="mono plain">—</pre>
+      </details>
     </div>
 
     <div class="footer">© Model Report</div>
@@ -81,97 +105,136 @@
 
     // --- 讀回測報告（優先 Supabase → 內嵌 report → 獨立檔） ---
     async function loadBacktestReport() {
-        // 1) 試 Supabase（若你用）
-        try {
+      try {
         if (window.SUPABASE_URL && window.SUPABASE_KEY) {
-            const base = SUPABASE_URL.replace(/\/$/, '');
-            // 依你實際表名與查詢條件調整
-            const url = `${base}/rest/v1/backtest_reports?symbol=eq.ETHUSDT&horizon=eq.6h&order=asof.desc&limit=1`;
-            const [row] = await fetch(url, {
+          const base = SUPABASE_URL.replace(/\/$/, '');
+          const url = `${base}/rest/v1/backtest_reports?symbol=eq.ETHUSDT&horizon=eq.6h&order=asof.desc&limit=1`;
+          const [row] = await fetch(url, {
             headers: {
-                apikey: SUPABASE_KEY,
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-                Accept: 'application/json',
-                'Accept-Profile': 'predictor'
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              Accept: 'application/json',
+              'Accept-Profile': 'predictor'
             }
-            }).then(r=>r.json());
-            if (row) return row; // 直接回傳具有同名欄位的物件
+          }).then(r=>r.json());
+          if (row) return row;
         }
-        } catch (e) { console.warn('[report] Supabase 取數失敗', e); }
+      } catch (e) { console.warn('[report] Supabase 取數失敗', e); }
 
-        // 2) 試 backtest 檔案中的 report
-        try {
-        const bt = await fetch('./data/backtest_sample.json').then(r=>r.json()); // 你現行檔名
-        if (bt && bt.report) return bt.report; // 方案 1
-        } catch {}
+      try {
+        const bt = await fetch('./data/backtest_sample.json').then(r=>r.json());
+        if (bt && bt.report) return bt.report;
+      } catch {}
 
-        // 3) 試獨立報告檔（方案 2）
-        try {
+      try {
         return await fetch('./data/backtest_report.json').then(r=>r.json());
-        } catch {}
+      } catch {}
 
-        return null;
+      return null;
     }
 
     // --- 格式化小工具 ---
-    const pct = v => (v===null||v===undefined||isNaN(v)) ? '—' : (v*100).toFixed(2)+'%';
-    const num = v => (v===null||v===undefined||isNaN(v)) ? '—' : String(v);
-    const fix = (v,n=4) => (v===null||v===undefined||isNaN(v)) ? '—' : (+v).toFixed(n);
+    const pct2 = v => (v===null||v===undefined||isNaN(v)) ? '—' : (v*100).toFixed(2)+'%';
+    const num  = v => (v===null||v===undefined||isNaN(v)) ? '—' : String(v);
+    const fix  = (v,n=4) => (v===null||v===undefined||isNaN(v)) ? '—' : (+v).toFixed(n);
 
     // --- 繪製回測報告表格 ---
     function renderReportTable(rep){
-        const el = document.getElementById('reportTbl');
-        if (!el) return;
-        if (!rep) { el.innerHTML = '<tr><td>—</td></tr>'; return; }
+      const el = document.getElementById('reportTbl');
+      if (!el) return;
+      if (!rep) { el.innerHTML = '<tr><td>—</td></tr>'; return; }
 
-        const rows = [
+      const rows = [
         ['總交易筆數',            num(rep.n_trades)],
-        ['方向命中率',            pct(rep.hit_rate)],
-        ['波動命中率',            pct(rep.vol_hit_rate)],
+        ['方向命中率',            pct2(rep.hit_rate)],
+        ['波動命中率',            pct2(rep.vol_hit_rate)],
         ['夏普比',               fix(rep.sharpe, 2)],
         ['Sortino比',            fix(rep.sortino, 2)],
-        ['年化報酬率',            pct(rep.cagr)],
-        ['年化波動',              pct(rep.volatility_ann)],
-        ['最大回撤',              pct(rep.max_drawdown)],
+        ['年化報酬率',            pct2(rep.cagr)],
+        ['年化波動',              pct2(rep.volatility_ann)],
+        ['最大回撤',              pct2(rep.max_drawdown)],
         ['Calmar比',             fix(rep.calmar, 2)],
         ['利潤因子',              fix(rep.profit_factor, 2)],
         ['期望值/每筆',           fix(rep.expectancy, 4)],
         ['平均每筆報酬',          fix(rep.avg_trade_return, 4)],
         ['中位每筆報酬',          fix(rep.median_trade_return, 4)],
-        ['勝率',                 pct(rep.win_rate)],
-        ['負率',                 pct(rep.loss_rate)],
-        ['平均單筆盈利',           pct(rep.avg_win)],
-        ['平均單筆虧損',           pct(rep.avg_loss)],
+        ['勝率',                 pct2(rep.win_rate)],
+        ['負率',                 pct2(rep.loss_rate)],
+        ['平均單筆盈利',           pct2(rep.avg_win)],
+        ['平均單筆虧損',           pct2(rep.avg_loss)],
         ['連續盈利最長',           num(rep.max_consec_wins)],
         ['連續虧損最長',           num(rep.max_consec_losses)],
         ['平均持有天數',           fix(rep.avg_holding_days, 2)],
         ['槓桿單位註記',           rep.atr_leverage_unit || '—'],
-        ['平均曝險',              pct(rep.exposure)],
+        ['平均曝險',              pct2(rep.exposure)],
         ['週轉率',               fix(rep.turnover, 2)],
         ['測試天數',              num(rep.test_days)],
         ['折數（WF）',            num(rep.n_folds)],
-        ['分類評估（OOF）acc',    pct(rep?.oof?.acc)],
-        ['分類評估（OOF）bacc',   pct(rep?.oof?.bacc)],
-        ['分類評估（OOF）f1',     pct(rep?.oof?.f1)],
+        ['分類評估（OOF）acc',    pct2(rep?.oof?.acc)],
+        ['分類評估（OOF）bacc',   pct2(rep?.oof?.bacc)],
+        ['分類評估（OOF）f1',     pct2(rep?.oof?.f1)],
         ['分類評估（OOF）auc',    fix(rep?.oof?.auc, 3)]
-        ];
+      ];
 
-        el.innerHTML = `
+      el.innerHTML = `
         <tr><th>指標</th><th>數值</th></tr>
         ${rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('')}
-        `;
+      `;
+    }
+
+    // === 新增：讀取並整合 90 天文字報告（右上角摘要 + 原文區） ===
+    async function loadTextReports() {
+      const summaryEl = document.getElementById('txtSummary');
+      const sigEl = document.getElementById('txtRawSignal');
+      const pfEl  = document.getElementById('txtRawPortfolio');
+
+      let sig = null, pf = null;
+      try { sig = await fetch('./data/report_signal_statistics.txt').then(r=>r.text()); } catch(e){ console.warn(e); }
+      try { pf  = await fetch('./data/report_portfolio_backtest.txt').then(r=>r.text()); } catch(e){ console.warn(e); }
+
+      if (sigEl && sig) sigEl.textContent = sig;
+      if (pfEl  && pf ) pfEl.textContent  = pf;
+
+      // 簡易 parser（抓 Overall 段落的關鍵數字）
+      const parseSignal = (txt) => {
+        if (!txt) return null;
+        const n   = (txt.match(/已驗證總預測數\s*:\s*(\d+)/) || [])[1];
+        const hr  = (txt.match(/方向命中率.*?:\s*([\d.]+)%/) || [])[1];
+        const vhr = (txt.match(/波動命中率.*?:\s*([\d.]+)%/) || [])[1];
+        return { n: n?+n:undefined, hit_rate_pct: hr, vol_hit_rate_pct: vhr };
+      };
+      const parsePortfolio = (txt) => {
+        if (!txt) return null;
+        const cagr = (txt.match(/年化報酬率.*?:\s*([\d.\-]+)%/) || [])[1];
+        const mdd  = (txt.match(/最大回撤.*?:\s*([\-\d.]+)%/) || [])[1];
+        const sharpe  = (txt.match(/夏普比.*?:\s*([-\d.]+)/) || [])[1];
+        const sortino = (txt.match(/Sortino比.*?:\s*([-\d.]+)/) || [])[1];
+        return { cagr_pct: cagr, mdd_pct: mdd, sharpe, sortino };
+      };
+
+      const S = parseSignal(sig);
+      const P = parsePortfolio(pf);
+
+      if (summaryEl) {
+        const parts = [];
+        if (S) parts.push(`信號 N=${S.n ?? '—'}、命中率 ${S.hit_rate_pct ?? '—'}、波動命中率 ${S.vol_hit_rate_pct ?? '—'}`);
+        if (P) parts.push(`回測 CAGR ${P.cagr_pct ?? '—'}、MDD ${P.mdd_pct ?? '—'}、Sharpe ${P.sharpe ?? '—'}、Sortino ${P.sortino ?? '—'}`);
+        summaryEl.innerHTML = parts.length
+          ? `<span>${parts[0]}</span>${parts[1] ? '<span class="sep">│</span><span>'+parts[1]+'</span>' : ''}`
+          : '—';
+      }
     }
 
     // --- 在頁面啟動流程中呼叫（放在你既有 IIFE 主程式內） ---
     (async () => {
-        const report = await loadBacktestReport();
-        renderReportTable(report);
+      const report = await loadBacktestReport();
+      renderReportTable(report);
     })();
 
     function pct(x){ return (x*100).toFixed(2) + '%'; }
 
     (async () => {
-      const raw = await loadBacktest();   // 結構參考你的 sample
+      const raw = await loadBacktest();
       const rows = Array.isArray(raw.data) ? raw.data : [];
 
       // === KPI（簡單示意） ===
@@ -237,6 +300,9 @@
             <td>${ok}</td>
           </tr>`;
         }).join('');
+
+      // ★ 讀入並整合 90 天文字報告（右上角摘要 + 原文區）
+      await loadTextReports();
     })();
   </script>
 </body>
