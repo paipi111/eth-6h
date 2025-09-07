@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>模型績效報告（XGBoost）</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    :root { --bg:#0b0f19; --fg:#e5e7eb; --muted:#94a3b8; --card:#0f172a; --accent:#22c55e; }
+    html, body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial; }
+    .container { max-width: 1180px; margin: 0 auto; padding: 18px; }
+    .title { font-size: 28px; font-weight: 800; letter-spacing:.5px; }
+    .muted { color: var(--muted); }
+    .row { display:flex; gap:16px; flex-wrap:wrap; }
+    .card { background: var(--card); border: 1px solid rgba(148,163,184,.20); border-radius: 16px; padding: 16px; flex:1; min-width: 300px; }
+    .kpi { text-align:center; }
+    .kpi .num { font-size: 34px; font-weight: 800; margin-top: 8px; }
+    .grid4 { display:grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap:12px; }
+    table.tbl { width:100%; border-collapse:collapse; }
+    table.tbl th, table.tbl td { padding:8px 10px; border-bottom:1px solid rgba(148,163,184,.25); text-align:left; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:9999px; font-weight:700; }
+    .green { background:rgba(34,197,94,.15); color:#86efac; }
+    .red { background:rgba(239,68,68,.15); color:#fca5a5; }
+    .gray { background:rgba(148,163,184,.15); color:#cbd5e1; }
+    .footer { text-align:center; font-size:12px; margin: 24px auto; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
+      <div>
+        <div class="title">XGBoost 策略組合績效報告</div>
+        <div class="muted">模型期間、指標與回測日誌僅示意，可直接接你的 API / Supabase 資料表。</div>
+      </div>
+      <a class="muted" href="./index.html">← 回到主頁</a>
+    </div>
+
+    <!-- KPI -->
+    <div class="grid4" style="margin-top:12px;">
+      <div class="card kpi"><div class="muted">總體準確率</div><div id="kpi-acc" class="num">—</div></div>
+      <div class="card kpi"><div class="muted">交易信號準確率</div><div id="kpi-tradeacc" class="num">—</div></div>
+      <div class="card kpi"><div class="muted">觀望信號準確率</div><div id="kpi-holdacc" class="num">—</div></div>
+      <div class="card kpi"><div class="muted">已驗證預測總數</div><div id="kpi-n" class="num">—</div></div>
+    </div>
+
+    <div class="row" style="margin-top:12px;">
+      <div class="card" style="flex:2;">
+        <div class="muted">單位權益曲線</div>
+        <div id="equity" style="height:320px;"></div>
+      </div>
+      <div class="card" style="flex:1;">
+        <div class="muted">最終決策分佈</div>
+        <div id="pie" style="height:320px;"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px;">
+      <div class="muted" style="font-weight:700;">詳細交易日誌</div>
+      <table class="tbl mono" id="log"></table>
+    </div>
+
+    <div class="footer">© Model Report</div>
+  </div>
+
+  <script>
+    async function loadBacktest(){
+      try {
+        const r = await fetch('./data/backtest_sample.json');
+        return await r.json();
+      } catch(e) {
+        console.error(e); return {data:[]};
+      }
+    }
+
+    function pct(x){ return (x*100).toFixed(2) + '%'; }
+
+    (async () => {
+      const raw = await loadBacktest();   // 結構參考你的 sample
+      const rows = Array.isArray(raw.data) ? raw.data : [];
+
+      // === KPI（簡單示意） ===
+      const N = rows.length;
+      const acc = N ? rows.filter(r=>r.pred_dir===r.actual_dir).length/N : 0;
+      const tradeRows = rows.filter(r=>r.pred_dir!=='hold');
+      const holdRows  = rows.filter(r=>r.pred_dir==='hold');
+      const tradeAcc = tradeRows.length ? tradeRows.filter(r=>r.pred_dir===r.actual_dir).length/tradeRows.length : 0;
+      const holdAcc  = holdRows.length ? holdRows.filter(r=>r.pred_dir===r.actual_dir).length/holdRows.length : 0;
+      document.getElementById('kpi-acc').textContent = pct(acc);
+      document.getElementById('kpi-tradeacc').textContent = pct(tradeAcc);
+      document.getElementById('kpi-holdacc').textContent = pct(holdAcc);
+      document.getElementById('kpi-n').textContent = String(N);
+
+      // === 權益曲線（1/-1/0 乘上預測方向 → 累積） ===
+      const equity = []; let cum = 0;
+      const xs = rows.map(r => (r.timestamp||'').slice(0,10));
+      rows.forEach(r=>{
+        const sgn = r.pred_dir==='up' ? 1 : (r.pred_dir==='down' ? -1 : 0);
+        cum += sgn * (Number(r.delta_actual)||0);
+        equity.push(cum);
+      });
+      const eq = echarts.init(document.getElementById('equity'));
+      eq.setOption({
+        backgroundColor:'transparent', textStyle:{color:getComputedStyle(document.body).color},
+        grid:{left:50,right:16,top:20,bottom:40},
+        xAxis:{ type:'category', data:xs, boundaryGap:false, axisLabel:{color:'#94a3b8'} },
+        yAxis:{ type:'value', axisLabel:{color:'#94a3b8'}, splitLine:{lineStyle:{color:'rgba(148,163,184,.2)'}} },
+        tooltip:{ trigger:'axis' },
+        series:[{ type:'line', data: equity, showSymbol:false, smooth:true, name:'Equity' }]
+      });
+
+      // === 決策分佈圓餅圖 ===
+      const cnt = { up:0, down:0, hold:0 };
+      rows.forEach(r=>{ cnt[r.pred_dir] = (cnt[r.pred_dir]||0)+1; });
+      const pie = echarts.init(document.getElementById('pie'));
+      pie.setOption({
+        backgroundColor:'transparent', textStyle:{color:getComputedStyle(document.body).color},
+        tooltip:{ trigger:'item' },
+        series:[{
+          type:'pie', radius:['45%','70%'],
+          data: [
+            {value:cnt.up,   name:'做多 (Long)'},
+            {value:cnt.down, name:'做空 (Short)'},
+            {value:cnt.hold, name:'觀望 (Hold)'}
+          ]
+        }]
+      });
+
+      // === 交易日誌表 ===
+      const el = document.getElementById('log');
+      el.innerHTML = '<tr><th>日期</th><th>預測</th><th>幅度</th><th>實際</th><th>是否正確</th></tr>' +
+        rows.map(r=>{
+          const dir = r.pred_dir==='up' ? '<span class="pill green">多</span>'
+                    : r.pred_dir==='down' ? '<span class="pill red">空</span>'
+                    : '<span class="pill gray">觀望</span>';
+          const ok = (r.pred_dir===r.actual_dir) ? 'true' : 'false';
+          return `<tr>
+            <td>${(r.timestamp||'').replace('T',' ').slice(0,16)}</td>
+            <td>${dir}</td>
+            <td>${(Number(r.delta_pred)||0).toFixed(2)}%</td>
+            <td>${r.actual_dir||'—'}</td>
+            <td>${ok}</td>
+          </tr>`;
+        }).join('');
+    })();
+  </script>
+</body>
+</html>
