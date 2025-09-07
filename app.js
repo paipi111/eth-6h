@@ -576,7 +576,7 @@ function renderCoinPage(coin, rows){
   // 更新「模型資料」指示燈
   if (typeof renderModelStatus === 'function') renderModelStatus();
 
-  // ===== 新增：最近 5 次預測表（使用 backtest_sample.json） =====
+  // ===== 新增：最近 5 次預測表 =====
   (async () => {
     const el = $("#lastPreds");
     if (!el) return;
