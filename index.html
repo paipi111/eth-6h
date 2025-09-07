@@ -52,10 +52,13 @@
     .circle.ok { background:#22c55e; }
     .circle.warn { background:#f59e0b; }
     .circle.bad { background:#ef4444; }
-    [data-theme="dark"] .tab { color: #e5e7eb; }
-    [data-theme="dark"] .tab.active { color: #60a5fa; border-color: #60a5fa; }
-
-    /* sparkline 卡片排版 */
+    [data-theme="dark"] .tab {
+      color: #e5e7eb;  /* 更亮的灰白字 */
+    }
+    [data-theme="dark"] .tab.active {
+      color: #60a5fa;  /* 高亮藍色 */
+      border-color: #60a5fa;
+    }
     .sparks {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -68,7 +71,9 @@
       padding: 8px;
       background: color-mix(in oklab, var(--card) 92%, transparent);
     }
-    .spark-card .spark { height: 60px; }
+    .spark-card .spark {
+      height: 60px;
+    }
   </style>
 </head>
 <body data-theme="light">
@@ -80,6 +85,7 @@
           <div class="title">Crypto 1d K線與模型資訊（公開版）</div>
           <div class="muted">首頁：模型資訊。幣種分頁：1D K 線 + 圖一/圖二全部指標（前端自動計算）。</div>
           <div class="tabs" id="tabs"></div>
+          
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
           <div class="tabs" id="tabs-extra">
@@ -90,8 +96,62 @@
       </div>
     </div>
 
-    <!-- Route: Home -->
-    <div id="route-home" style="display:none;"></div>
+    <!-- Route: Home（模型資訊） -->
+    <div id="route-home" style="display:none;">
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div class="title">模型重要度</div>
+            <button id="impSortBtn" class="btn" title="切換升/降序">排序：降序</button>
+          </div>
+          <div id="impChart" style="height:300px;"></div>
+        </div>
+        <div class="card" style="flex:1;">
+          <div class="title">最新特徵</div>
+          <div class="grid3" id="featGrid"></div>
+        </div>
+      </div>
+
+      <!-- 新增：資產走勢 vs 模型疊加線 -->
+      <div class="row">
+        <div class="card">
+          <div class="title">資產走勢 vs 模型預測（累積報酬）</div>
+          <div id="overlayChart" style="height:300px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card">
+          <div class="title">模型資訊</div>
+          <div id="modelInfo" class="mono" style="white-space:pre-wrap; margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div class="title">最近 N 次預測回測</div>
+          <div class="muted">資料來源：sample（或你的 API）。</div>
+          <div id="cmChart" style="height:320px; margin-top:8px;"></div>
+        </div>
+
+        <div class="card" style="flex:1;">
+          <!-- 新增：圓形指標小卡 -->
+          <div class="grid2">
+            <div style="text-align:center;">
+              <div class="muted">Accuracy</div>
+              <div id="accCircle" class="circle">—</div>
+            </div>
+            <div style="text-align:center;">
+              <div class="muted">F1 Score</div>
+              <div id="f1Circle" class="circle">—</div>
+            </div>
+          </div>
+
+          <div class="title" style="margin-top:12px;">回測指標（表格）</div>
+          <table class="metrics" id="btMetrics"></table>
+        </div>
+      </div>
+    </div>
 
     <!-- Route: Coin page -->
     <div id="route-coin" style="display:none;">
@@ -99,11 +159,16 @@
         <div class="card" style="flex:2; align-self:flex-start;">
           <div class="title"><span id="coinTitle">—</span> · 1D K 線</div>
           <div id="kChart" style="height:440px;"></div>
+
+          <!-- ⬇︎ 搬過來的 y_pred + API 狀態 -->
           <hr class="hr">
           <div class="grid2" id="kMeta">
             <div>
               <div class="muted" style="text-align:center;">上漲機率 (y_pred)</div>
-              <div id="yPred" class="mono" style="font-size:42px; font-weight:800; text-align:center; margin-top:6px;">—</div>
+              <div id="yPred" class="mono"
+                  style="font-size:42px; font-weight:800; text-align:center; margin-top:6px;">
+                —
+              </div>
             </div>
             <div>
               <div class="muted">API 狀態</div>
@@ -111,8 +176,10 @@
                 <span id="apiDot" class="dot"></span>
                 <span id="apiLabel" class="mono">—</span>
               </div>
+              <!-- 模型資料指示燈會由 app.js 自動插入 -->
             </div>
           </div>
+          <!-- ⬆︎ 搬過來的結束 -->
         </div>
 
         <div class="card" style="flex:1;">
@@ -127,6 +194,7 @@
 
           <!-- 訂閱區塊 -->
           <div class="subs" style="display:flex; gap:8px; flex-wrap:wrap;">
+            <!-- TODO: 換成你的實際連結 -->
             <a class="btn primary" href="https://t.me/your_bot" target="_blank" rel="noopener">Telegram Bot</a>
             <a class="btn" href="mailto:example@yourmail.com">Email</a>
             <a class="btn" href="https://discord.gg/your_invite" target="_blank" rel="noopener">Discord</a>
@@ -144,16 +212,101 @@
             <table id="lastPreds" class="metrics"></table>
           </div>
 
-          <!-- 迷你走勢（Sparklines） -->
+          <!-- 指標總覽表格 -->
           <div class="subcard" style="margin-top:12px;">
-            <div class="title" style="font-size:16px;">📈 指標迷你走勢</div>
-            <div id="indSparks" class="sparks"></div>
+            <div class="title" style="font-size:16px;">📊 指標總覽</div>
+            <div style="max-height:260px; overflow-y:auto;">
+              <table id="indTable" class="metrics mono" style="width:100%; font-size:13px;">
+                <thead>
+                  <tr><th style="text-align:left;">名稱</th><th style="text-align:right;">最新值</th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <!-- 迷你走勢（Sparklines） -->
+            <div class="subcard" style="margin-top:12px;">
+              <div class="title" style="font-size:16px;">📈 指標迷你走勢</div>
+              <div id="indSparks" class="sparks"></div>
+            </div>
           </div>
+
+        </div>
+      </div>
+
+      <!-- 以下保持原樣（基差、技術指標…） -->
+      <div class="row">
+        <div class="card section-anchor" id="sec-basis" style="flex:1;">
+          <div class="title">開/收盤期貨基差 (年化)</div>
+          <div id="chart-basis" style="height:300px;"></div>
+        </div>
+        <div class="card section-anchor" id="sec-basischg" style="flex:1;">
+          <div class="title">基差變化率</div>
+          <div id="chart-basischg" style="height:300px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card section-anchor" id="sec-whale" style="flex:1;">
+          <div class="title">巨鯨指數 (WHALE)</div>
+          <div id="chart-whale" style="height:280px;"></div>
+        </div>
+        <div class="card section-anchor" id="sec-cbprem" style="flex:1;">
+          <div class="title">Coinbase 溢價率 (CB_PREM%)</div>
+          <div id="chart-cbprem" style="height:280px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card section-anchor" id="sec-returns" style="flex:1;">
+          <div class="title">對數報酬（1d / 5d）</div>
+          <div id="chart-returns" style="height:260px;"></div>
+        </div>
+        <div class="card section-anchor" id="sec-logrets" style="flex:1;">
+          <div class="title">對數報酬（7d / 30d）</div>
+          <div id="chart-logrets" style="height:260px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card section-anchor" id="sec-atr" style="flex:1;">
+          <div class="title">ATR14</div>
+          <div id="chart-atr" style="height:260px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card section-anchor" id="sec-ema" style="flex:1;">
+          <div class="title">EMA(6/24/56)</div>
+          <div id="chart-ema" style="height:260px;"></div>
+        </div>
+        <div class="card section-anchor" id="sec-rsi" style="flex:1;">
+          <div class="title">RSI(14)</div>
+          <div id="chart-rsi" style="height:260px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card section-anchor" id="sec-macd" style="flex:1;">
+          <div class="title">MACD(12,26,9)</div>
+          <div id="chart-macd" style="height:280px;"></div>
+        </div>
+        <div class="card section-anchor" id="sec-kd" style="flex:1;">
+          <div class="title">KD(9,3,3)</div>
+          <div id="chart-kd" style="height:280px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card section-anchor" id="sec-boll" style="flex:1;">
+          <div class="title">Bollinger(20,2) / BBW</div>
+          <div id="chart-boll" style="height:300px;"></div>
         </div>
       </div>
     </div>
 
-    <div class="footer">Demo 使用 <a href="https://echarts.apache.org" target="_blank">Apache ECharts</a>。</div>
+    <div class="footer">
+      Demo 使用 <a href="https://echarts.apache.org" target="_blank">Apache ECharts</a>。URL 支援：<span class="mono">#home、#btc、#eth、#xrp、#doge、#bnb、#ada</span>。
+    </div>
   </div>
 
   <script src="./app.js"></script>

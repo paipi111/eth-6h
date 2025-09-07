@@ -10,7 +10,7 @@ const $ = (s)=>document.querySelector(s);
 const COINS = ["HOME","BTC","ETH","XRP","DOGE","BNB","ADA"]; // 沒有 SOL
 const state = {
   theme: "light",
-  charts: {},          // ✅ 修正：這裡只能是物件
+  charts: {},
   route: "HOME",
   ohlc: [],
   ind: {},
@@ -18,7 +18,7 @@ const state = {
   source: 'sample',
   pred: null,
   pred_source: 'none',
-  impSort: 'desc'
+  impSort: 'desc'   // ★ 新增：特徵重要度排序（'desc' | 'asc'）
 };
 
 // 建 tabs
@@ -433,82 +433,6 @@ function optBase(x, yname=''){
 }
 
 const lineS = (name,data,smooth=true)=>({ type:'line', name, data, smooth, showSymbol:false });
-
-
-// === 迷你走勢：要畫哪些指標 ===
-const SPARK_LIST = [
-  ['RSI14', 'rsi14', {min:0, max:100}],
-  ['ATR14', 'atr14', {}],
-  ['BBW', 'bbw', {}],
-  ['Ret 1d', 'log_r1', {}],
-  ['Ret 5d', 'log_r5', {}],
-  ['MACD', 'macd', {macd:true}]
-];
-
-function fmtNum(x){
-  if (x==null || isNaN(x)) return '—';
-  const ax = Math.abs(x);
-  if (ax >= 1000) return x.toFixed(0);
-  if (ax >= 100)  return x.toFixed(1);
-  if (ax >= 1)    return x.toFixed(2);
-  return x.toFixed(4);
-}
-
-function renderSparks(rows){
-  const box = document.getElementById('indSparks');
-  if (!box) return;
-  const N = 80;
-  const xs = rows.map(r => r.t).slice(-N);
-  box.innerHTML = '';
-
-  SPARK_LIST.forEach(([label, key, opt])=>{
-    if (opt.macd) {
-      const dif = state.ind?.macd_dif?.slice(-N) || [];
-      const dea = state.ind?.macd_dea?.slice(-N) || [];
-      const hist = state.ind?.macd_hist?.slice(-N) || [];
-      if (!dif.length) return;
-      const card = document.createElement('div');
-      card.className = 'spark-card';
-      card.innerHTML = `<div class="muted" style="font-size:12px;">${label}
-          <span class="mono" style="float:right; font-weight:700;">${fmtNum(dif.at(-1))}</span></div>
-        <div class="spark"></div>`;
-      box.appendChild(card);
-      const chart = echarts.init(card.querySelector('.spark'));
-      chart.setOption({
-        animation: false,
-        backgroundColor: 'transparent',
-        grid: { left:0, right:0, top:0, bottom:0 },
-        xAxis: { type:'category', data: xs, show:false },
-        yAxis: { type:'value', show:false, scale:true },
-        series: [
-          { type:'line', data:dif, name:'DIF', smooth:true, showSymbol:false, lineStyle:{ width:1.2, color:'#22c55e' }},
-          { type:'line', data:dea, name:'DEA', smooth:true, showSymbol:false, lineStyle:{ width:1.2, color:'#3b82f6' }},
-          { type:'bar',  data:hist, name:'Hist', barWidth:1.2,
-            itemStyle:{ color:(p)=> p.value>=0 ? '#ef4444' : '#10b981' } }
-        ]
-      });
-    } else {
-      const arr = state.ind?.[key];
-      if (!Array.isArray(arr) || !arr.length) return;
-      const ys = arr.slice(-N);
-      const card = document.createElement('div');
-      card.className = 'spark-card';
-      card.innerHTML = `<div class="muted" style="font-size:12px;">${label}
-          <span class="mono" style="float:right; font-weight:700;">${fmtNum(ys.at(-1))}</span></div>
-        <div class="spark"></div>`;
-      box.appendChild(card);
-      const chart = echarts.init(card.querySelector('.spark'));
-      chart.setOption({
-        animation:false,
-        backgroundColor:'transparent',
-        grid:{left:0,right:0,top:0,bottom:0},
-        xAxis:{ type:'category', data:xs, show:false },
-        yAxis:Object.assign({ type:'value', show:false, scale:true }, opt||{}),
-        series:[{ type:'line', data:ys, smooth:true, showSymbol:false, lineStyle:{ width:1.5 }, areaStyle:{ opacity:0.08 } }]
-      });
-    }
-  });
-}
 
 function renderCoinPage(coin, rows){
   // K 線
