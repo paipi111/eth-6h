@@ -491,6 +491,18 @@ function renderModelStatus(){
   }
 }
 
+// 安全初始化 ECharts（容器不存在就不畫，不會 throw）
+function initEC(id){
+  const el = document.getElementById(id);
+  if(!el){ console.warn(`[ECharts] container #${id} not found`); return null; }
+  try {
+    return echarts.getInstanceByDom(el) || echarts.init(el);
+  } catch (e) {
+    console.error(`[ECharts] init #${id} failed`, e);
+    return null;
+  }
+}
+
 // ====== 畫圖 ======
 function mount(id){ return echarts.init(document.getElementById(id)); }
 function optBase(x, yname=''){
@@ -873,6 +885,175 @@ $("#themeToggle").addEventListener('click', ()=>{
   $("#themeLabel").textContent = next==='light' ? '白' : '黑';
   main(); // 重新畫（套用 tooltip 顏色）
 });
+
+/* ===================== Home：模型檔案總覽（覆蓋 renderHome） ===================== */
+
+// 簡易 CSV 解析（你的檔很乾淨就夠用）
+function parseCSV_MH(text){
+  const lines = text.trim().split(/\r?\n/);
+  const head = lines[0].split(',').map(s=>s.trim());
+  return lines.slice(1).map(line=>{
+    const cells = line.split(',').map(s=>s.trim());
+    const o={}; head.forEach((h,i)=> o[h]=cells[i]); return o;
+  });
+}
+async function fetchCSV_MH(url){ const r=await fetch(url); return parseCSV_MH(await r.text()); }
+
+const MH = {
+  train:null, weights:null, feat:null, oof:null, bt:null,
+  charts:{ feat:null, vw:null },
+  sym:'BTC', view:'V1'
+};
+
+async function mhLoadAll(){
+  const base = './data';
+  const [train, weights, feat, oof, bt] = await Promise.all([
+    fetchJSON(`${base}/train_report_multiview.json`),
+    fetchJSON(`${base}/view_weights_init.json`),
+    fetchCSV_MH(`${base}/oos_feature_importance.csv`),
+    fetchCSV_MH(`${base}/oof_metrics.csv`),
+    fetchCSV_MH(`${base}/backtest_summary.csv`)
+  ]);
+  MH.train=train; MH.weights=weights; MH.feat=feat; MH.oof=oof; MH.bt=bt;
+}
+
+function mhFmt(x,d=3){ if(x==null||x==='')return '—'; const n=Number(x); return Number.isNaN(n)? String(x): n.toFixed(d); }
+
+function mhRenderKPIs(){
+  const t = MH.train?.[MH.sym]?.[MH.view];
+  const dir = t?.dir_avg, vol = t?.vol_avg, w = MH.weights?.[MH.sym]?.[MH.view];
+  document.getElementById('mhDirF1').textContent  = mhFmt(dir?.f1);
+  document.getElementById('mhDirAUC').textContent = mhFmt(dir?.auc);
+  document.getElementById('mhDirBACC').textContent= mhFmt(dir?.bacc);
+  document.getElementById('mhVolACC').textContent = mhFmt(vol?.acc);
+  document.getElementById('mhVolF1').textContent  = mhFmt(vol?.macro_f1);
+  document.getElementById('mhViewW').textContent  = (w!=null)? mhFmt(w) : '—';
+}
+
+function mhRenderFeat(){
+  if(!MH.charts.feat){ MH.charts.feat = initEC('mhFeat'); window.addEventListener('resize', ()=> MH.charts.feat && MH.charts.feat.resize()); }
+  if(!MH.charts.feat) return; // 容器不存在就跳過
+  const rows = (MH.feat||[]).filter(r => (r.symbol||r.Symbol||'').toUpperCase()===MH.sym);
+  const fk = ['feature','Feature','name','Name'].find(k => k in (rows[0]||{})) || 'feature';
+  const vk = ['importance','Importance','gain','Gain','weight'].find(k => k in (rows[0]||{})) || 'importance';
+  const top = rows.map(r=>({f:r[fk],v:+r[vk]})).filter(x=>Number.isFinite(x.v)).sort((a,b)=>b.v-a.v).slice(0,20);
+  const C = themeColors();
+  MH.charts.feat.setOption({
+    backgroundColor:'transparent', textStyle:{color:C.fg},
+    grid:{ left:80, right:20, top:20, bottom:30 },
+    xAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    yAxis:{ type:'category', data: top.map(x=>x.f).reverse(), axisLabel:{ color:C.muted } },
+    series:[{ type:'bar', data: top.map(x=>x.v).reverse(), name:'重要度', barMaxWidth:22 }],
+    tooltip: tipStyle('item')
+  });
+}
+
+function mhRenderViewW(){
+  if(!MH.charts.vw){ MH.charts.vw = initEC('mhViewChart'); window.addEventListener('resize', ()=> MH.charts.vw && MH.charts.vw.resize()); }
+  if(!MH.charts.vw) return;
+  const w = MH.weights?.[MH.sym] || {};
+  const kv = Object.entries(w).sort((a,b)=> a[0].localeCompare(b[0]));
+  const C = themeColors();
+  MH.charts.vw.setOption({
+    backgroundColor:'transparent', textStyle:{ color:C.fg },
+    grid:{ left:40, right:20, top:20, bottom:30 },
+    xAxis:{ type:'category', data: kv.map(e=>e[0]), axisLabel:{ color:C.muted } },
+    yAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
+    series:[{ type:'bar', data: kv.map(e=>Number(e[1])), barMaxWidth:28 }],
+    tooltip: tipStyle('axis')
+  });
+}
+
+function mhRenderOOF(){
+  const thead = document.querySelector('#mhOOF thead');
+  const tbody = document.querySelector('#mhOOF tbody');
+  thead.innerHTML = `<tr><th>Symbol</th><th>View</th><th>Fold</th><th>ACC</th><th>F1</th><th>AUC</th><th>BACC</th></tr>`;
+  tbody.innerHTML = '';
+  const pick = (r,keys)=>{ const k=keys.find(x=>x in r); return k? r[k] : null; };
+  MH.oof.filter(r => (pick(r,['symbol','Symbol'])||'').toUpperCase()===MH.sym).forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${(pick(r,['symbol','Symbol'])||'').toUpperCase()}</td>
+      <td>${(pick(r,['view','View'])||'').toUpperCase()}</td>
+      <td>${pick(r,['fold','Fold'])??'—'}</td>
+      <td>${mhFmt(pick(r,['acc','ACC','accuracy','Accuracy']))}</td>
+      <td>${mhFmt(pick(r,['f1','F1']))}</td>
+      <td>${mhFmt(pick(r,['auc','AUC']))}</td>
+      <td>${mhFmt(pick(r,['bacc','BACC','balanced_accuracy','Balanced_Accuracy']))}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function mhRenderBT(){
+  const thead = document.querySelector('#mhBT thead');
+  const tbody = document.querySelector('#mhBT tbody');
+  thead.innerHTML = ''; tbody.innerHTML = '';
+  if(!(MH.bt?.length)) return;
+  const cols = Object.keys(MH.bt[0]);
+  thead.innerHTML = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
+  const hasSym = cols.some(c => c.toLowerCase()==='symbol');
+  const rows = hasSym ? MH.bt.filter(r => String(r.Symbol||r.symbol||'').toUpperCase()===MH.sym) : MH.bt;
+  rows.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = cols.map(c=>{
+      const v=r[c]; return `<td>${Number.isFinite(Number(v)) ? mhFmt(v) : (v??'—')}</td>`;
+    }).join('');
+    tbody.appendChild(tr);
+  });
+}
+
+function mhRefreshViewOptions(){
+  const sel = document.getElementById('mhView');
+  const views = MH.train?.[MH.sym] ? Object.keys(MH.train[MH.sym]) : ['V1','V2','V3','V4'];
+  sel.innerHTML = views.map(v=>`<option>${v}</option>`).join('');
+  if(!views.includes(MH.view)) MH.view = views[0];
+  sel.value = MH.view;
+}
+
+function mhRenderAll(){
+  mhRefreshViewOptions();
+  mhRenderKPIs();
+  mhRenderFeat();
+  mhRenderViewW();
+  mhRenderOOF();
+  mhRenderBT();
+}
+
+function mhBindUI(){
+  const s = document.getElementById('mhSym');
+  const v = document.getElementById('mhView');
+  if(s) s.onchange = ()=>{ MH.sym = s.value; mhRenderAll(); };
+  if(v) v.onchange = ()=>{ MH.view = v.value; mhRenderAll(); };
+}
+
+// 覆蓋原本的 renderHome：改成讀五份檔案
+async function renderHome(){
+  try{
+    if(!MH.train){ await mhLoadAll(); }
+    // 預設用 BTC / V1（保留使用者切換）
+    MH.sym = document.getElementById('mhSym')?.value || 'BTC';
+    MH.view = document.getElementById('mhView')?.value || 'V1';
+    mhBindUI();
+    mhRenderAll();
+  }catch(err){
+    console.error('Home 模型檔案載入失敗', err);
+    // 顯示簡短錯誤，避免空白
+    const box = document.getElementById('route-home');
+    if (box) box.insertAdjacentHTML('beforeend',
+      `<div class="card" style="border-color:#ef4444;">
+        <div class="title" style="color:#ef4444;">載入失敗</div>
+        <div class="muted">請確認 /data/ 目錄下的五個檔案是否存在且可讀：</div>
+        <div class="mono" style="white-space:pre-wrap; font-size:12px; margin-top:6px;">
+data/oof_metrics.csv
+data/oos_feature_importance.csv
+data/view_weights_init.json
+data/train_report_multiview.json
+data/backtest_summary.csv
+        </div>
+      </div>`);
+  }
+}
 
 // 啟動
 (async function boot() {
