@@ -212,19 +212,32 @@ async function fetchTodayPrediction(asset = 'BTC') {
 }
 
 // 右側「最近 5 次預測」：直接抓近 5 天
-async function fetchRecentPredictions(asset = 'BTC', n = 5) {
-  const base = `${SB_BASE}/predictions_daily`;
+async function fetchRecentPredictions(asset = 'ETH') {
+  const urlMax = `${SB_BASE}/api_status?asset_code=eq.${asset}&select=asset_code,pred_dt_max`;
+  const r1 = await fetch(urlMax, { headers: SB_HEADERS });
+  if (!r1.ok) throw new Error('api_status failed');
+  const s = await r1.json();
+  const latest = s?.[0]?.pred_dt_max;
+  if (!latest) throw new Error('no pred_dt_max');
+
   const q = new URLSearchParams({
-    coin: `eq.${asset}`,
-    order: 'dt.desc,model_tag.asc',
-    limit: String(n * 6),
+    coin:  `eq.${asset}`,
+    dt:    `eq.${latest}`,
+    order: 'model_tag.asc'
   });
-  let rows = await fetch(`${base}?${q}`, { headers: SB_HEADERS }).then(r => r.json());
-  if (!Array.isArray(rows)) {
-    console.error('[fetchRecentPredictions] 非陣列回應：', rows);
-    rows = [];
-  }
-  return groupByDate(rows).slice(0, n);
+  const url = `${SB_BASE}/predictions_daily?${q}`;
+  const r2 = await fetch(url, { headers: SB_HEADERS });
+  if (!r2.ok) throw new Error('predictions_daily failed');
+  const rows = await r2.json();
+
+  return rows
+    .map(x => ({
+      dt: x.dt,                          // ⬅️ 用 dt
+      yhat_dir: x.yhat_dir,
+      prob_up: x.prob_up                 // ⬅️ 用 prob_up
+    }))
+    .sort((a,b)=> (a.dt < b.dt ? 1 : -1))
+    .slice(0,5);
 }
 
 // ====== 路由 ======
@@ -234,23 +247,28 @@ function currentRoute(){
 }
 window.addEventListener('hashchange', main);
 
-async function fetchKlineNav(asset = 'BTC', view = 'V1') {
+async function fetchKlineNav(asset = 'ETH', view = 'ENS') {
   const q = new URLSearchParams({
     asset_code: `eq.${asset}`,
     view_tag:   `eq.${view}`,
     strategy:   `eq.atr1pct_long_only`,
     order:      'dt.asc',
   });
-  // 這行改回 predictor 子路徑
-  const url = `${SB_BASE}/api_kline_nav?${q}`;
-  const rows = await fetch(url, { headers: SB_HEADERS }).then(r => r.json());
-  if (!Array.isArray(rows)) {
-    console.error("[fetchKlineNav] 非陣列回應：", rows);
-    return { ohlc: [], nav: [], rows: [] };
-  }
-  const ohlc = rows.map(r => ({ t:r.dt, o:+r.open, h:+r.high, l:+r.low, c:+r.close, v:NaN }));
-  const nav  = rows.map(r => +r.nav_usd);
-  return { ohlc, nav, rows };
+  const url = `${SB_BASE}/api_kline_nav?${q}`; 
+  const r = await fetch(url, { headers: SB_HEADERS });
+  if (!r.ok) throw new Error('api_kline_nav failed');
+  const rows = await r.json();
+  if (!rows?.length) throw new Error('api_kline_nav empty');
+
+  // 轉成全站統一用的 t/o/h/l/c 欄位
+  return rows.map(d => ({
+    t: d.dt,
+    o: +d.open,
+    h: +d.high,
+    l: +d.low,
+    c: +d.close,
+    nav: d.nav_usd ?? null
+  }));
 }
 
 // ====== 讀資料：Supabase（或 sample） ======
@@ -263,82 +281,6 @@ async function fetchJSON(url, opts){
     console.error("[fetchJSON] ", url, e);
     throw e; // 交給上層決定是否 fallback
   }
-}
-
-async function fetchPricesFromSB(coin) {
-  // 將 #btc/#eth 轉為大寫幣別（你的 schema 就是 BTC/ETH…）
-  const sym = String(coin || "").toUpperCase();
-  if (!SUPABASE_URL || !SUPABASE_KEY || !sym) return null;
-
-  const base = SUPABASE_URL.replace(/\/$/, '');
-  const pageSize = 1000;
-  let lastTs = -1;
-  let all = [];
-
-  while (true) {
-    const q = new URLSearchParams({
-      select: 'ts_utc,open,high,low,close,volume',
-      coin: `eq.${sym}`,
-      'ts_utc': `gt.${lastTs}`,
-      order: 'ts_utc.asc',
-      limit: String(pageSize),
-    });
-    const url = `${base}/rest/v1/${PRICES_TABLE}?${q.toString()}`;
-
-    // 若單頁出錯（RLS、CORS、權限、Rate limit…），直接放棄 Supabase，由上層改走 sample
-    let rows = [];
-    try {
-      rows = await fetchJSON(url, {
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-          Accept: 'application/json',
-          'Accept-Profile': 'predictor'  // 指定使用 predictor schema（你的新表就在這）
-        }
-      });
-    } catch (e) {
-      return null;
-    }
-
-    if (!rows.length) break;
-    all = all.concat(rows);
-    lastTs = rows[rows.length - 1].ts_utc;
-    if (rows.length < pageSize) break;
-  }
-
-  if (!all.length) return null;
-
-  return all.map(r => ({
-    t: new Date(Number(r.ts_utc) < 1e12 ? Number(r.ts_utc) * 1000 : Number(r.ts_utc))
-          .toISOString().slice(0, 10),
-    o: +r.open, h: +r.high, l: +r.low, c: +r.close, v: +r.volume
-  }));
-}
-
-async function loadSample(){
-  // 沒有 daily_sample.json 時不要整個爆掉，回傳空物件讓上層照常跑
-  try {
-    if (state.sample) return state.sample;
-    state.sample = await fetchJSON(`${DATA_BASE}/daily_sample.json`);
-    return state.sample;
-  } catch {
-    console.warn("[sample] ./data/daily_sample.json 不存在，返回空資料。");
-    state.sample = {};
-    return state.sample;
-  }
-}
-
-async function getOHLC(coin){
-  // 1) 先試 Supabase
-  const sb = await fetchPricesFromSB(coin);
-  if (Array.isArray(sb) && sb.length) {
-    state.source = 'supabase';
-    return sb;
-  }
-  // 2) fallback：sample（即使檔案不存在也不會讓頁面中斷）
-  state.source = 'sample';
-  const sample = await loadSample();
-  return (sample[coin] || []).map(r => ({ t:r.t, o:+r.o, h:+r.h, l:+r.l, c:+r.c, v:+r.v }));
 }
 
 async function hydrateIndicators(coin, rows){
@@ -472,7 +414,7 @@ async function loadRecentPredictions() {
   }
 
   try {
-    const rows = await fetchRecentPredictions(state.route || 'BTC', 5); // ← 已合併、最多 5 天
+    const rows = await fetchRecentPredictions(state.route || 'BTC');
     const bodyHtml = (rows && rows.length)
       ? rows.map(r => {
           const prob = Number(r.prob_up);
@@ -500,6 +442,13 @@ async function loadRecentPredictions() {
     if (tbody) tbody.innerHTML = `<tr><td>—</td></tr>`;
     else if (container) container.innerHTML = `<table class="data-table"><tbody><tr><td>—</td></tr></tbody></table>`;
   }
+}
+
+function safeRender(fn, onOk, onFail){
+  fn().then(onOk).catch(err=>{
+    console.error(err);
+    onFail?.(err);
+  });
 }
 
 // ====== 指標計算（前端） ======
@@ -827,7 +776,7 @@ async function enterCoin(coin){
   Object.values(state.charts).forEach(ch=> ch && ch.clear());
 
   const kn = await fetchKlineNav(coin, 'V1');   // 或用你選的 view / ENS
-  state.ohlc = kn.ohlc;
+  state.ohlc = kn;
   state.source = 'supabase';
   await hydrateIndicators(coin, state.ohlc); // ← 這行會自動：Supabase→前端
 
@@ -838,9 +787,18 @@ async function enterCoin(coin){
   renderCoinPage(coin, state.ohlc);
 }
 
-async function fetchApiStatus(){
-  const url = `${SB_BASE}/api_status?order=asset_code.asc`;
-  return fetch(url, { headers: SB_HEADERS }).then(r=>r.json());
+async function fetchApiStatus(asset = 'ETH') {
+  const url = `${SB_BASE}/api_status?asset_code=eq.${asset}&select=asset_code,pred_dt_max`;
+  const r = await fetch(url, { headers: SB_HEADERS });
+  if (!r.ok) throw new Error('api_status failed');
+  const s = await r.json();
+  const row = s?.[0];
+  return {
+    predOK: !!row?.tplus1_pred_ok,
+    featOK: !!row?.features_ok_for_yday,
+    predDt: row?.pred_dt_max || '—',
+    navDt:  row?.nav_dt_max  || '—'
+  };
 }
 
 // ====== 主流程 ======
@@ -867,10 +825,24 @@ const MH = {
   sym:'BTC', view:'V1'
 };
 
-async function fetchBacktestReport(asset='BTC'){
-  const q = new URLSearchParams({ asset_code:`eq.${asset}`, order:'view_tag.asc' });
+async function fetchBacktestReport(asset = 'ETH') {
+  const q = new URLSearchParams({
+    asset_code: `eq.${asset}`,
+    order:      'view_tag.asc'
+  });
   const url = `${SB_BASE}/api_backtest_report?${q}`;
-  return fetch(url,{ headers:SB_HEADERS }).then(r=>r.json());
+  const r = await fetch(url, { headers: SB_HEADERS });
+  if (!r.ok) throw new Error('api_backtest_report failed');
+  const rows = await r.json();
+  if (!rows?.length) throw new Error('api_backtest_report empty');
+  // 取 ENS（或沒有 ENS 就取第一筆）
+  const row = rows.find(x => x.view_tag === 'ENS') || rows[0];
+  return {
+    start: row.start_dt, end: row.end_dt, n_days: row.n_days,
+    cagr: row.cagr, sharpe: row.sharpe_annual,
+    vol: row.vol_annual, mdd: row.max_drawdown,
+    n_trades: row.n_trades, win_rate: row.win_rate
+  };
 }
 
 async function fetchTrades(asset='BTC', view='V1'){
