@@ -690,161 +690,6 @@ function renderCoinPage(coin, rows){
   renderSparks(rows);
 }
 
-// ====== 首頁：模型資訊（優先 Supabase → fallback sample） ======
-async function renderHome(){
-  let pred = {};
-  const base = SUPABASE_URL.replace(/\/$/, '');
-  const url = `${base}/rest/v1/predictions_daily?coin=eq.ETH&order=dt.desc&limit=1`;
-
-  try {
-    const rows = await fetchJSON(url, {
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        Accept: 'application/json',
-        'Accept-Profile': 'predictor'
-      }
-    });
-    if (rows.length) {
-      // 從 predictions_daily 組成 pred 物件
-      pred = {
-        y_pred: rows[0].y_dir_prob_up,
-        horizon_hours: 24,
-        ci: [0.01, 0.0234],
-        features: { coin: rows[0].coin, dt: rows[0].dt },
-        model: { name: rows[0].model_tag, version: "—" },
-        importances: []
-      };
-    }
-  } catch (e) {
-    console.warn("[home] Supabase 抓取失敗，改用 sample", e);
-  }
-
-  // fallback: sample 檔案
-  if (!Object.keys(pred).length) {
-    pred = await fetchJSON("./data/predict_sample.json").catch(()=>({}));
-  }
-
-  // === 重要度 ===
-  const rawImp = (pred.importances||[]).slice();   // e.g. [["rsi14",0.22], ...]
-const C = themeColors();
-
-function drawImp() {
-  const imp = rawImp.slice().sort((a,b)=>
-    state.impSort==='desc' ? b[1]-a[1] : a[1]-b[1]
-  );
-  if(!state.charts.imp) state.charts.imp = echarts.init(document.getElementById('impChart'));
-  state.charts.imp.setOption({
-    backgroundColor:'transparent',
-    textStyle:{ color:C.fg },
-    grid:{ left: 80, right: 20, top: 20, bottom: 30 },
-    xAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
-    yAxis:{ type:'category', data: imp.map(x=>x[0]), axisLabel:{ color:C.muted } },
-    series:[{ type:'bar', data: imp.map(x=>x[1]), name:'重要度' }],
-    tooltip: tipStyle('item')
-  });
-  const btn = document.getElementById('impSortBtn');
-  if (btn) btn.textContent = `排序：${state.impSort==='desc'?'降序':'升序'}`;
-}
-drawImp();
-
-// 綁定按鈕事件（切換排序 → 重畫）
-const impBtn = document.getElementById('impSortBtn');
-if (impBtn) {
-  impBtn.onclick = () => {
-    state.impSort = (state.impSort === 'desc') ? 'asc' : 'desc';
-    drawImp();
-  };
-}
-
-  // === 特徵 ===
-  const grid = $("#featGrid"); grid.innerHTML="";
-  Object.entries(pred.features||{}).forEach(([k,v])=>{
-    const el=document.createElement('div');
-    el.innerHTML = `<div class="muted">${k}</div><div class="mono" style="font-size:18px; font-weight:700;">${v}</div>`;
-    grid.appendChild(el);
-  });
-
-  // === 模型文字 ===
-  const m = pred.model||{};
-  const txt = [
-    `模型：${m.name||'—'} (${m.version||'—'})`,
-    `訓練區間：${m.trained_window||'—'}`,
-    `目標：${m.target||'—'}，損失：${m.loss||'—'}`,
-    `指標：F1=${m.metrics?.f1 ?? '—'}, Precision=${m.metrics?.precision ?? '—'}, Recall=${m.metrics?.recall ?? '—'}, RMSE=${m.metrics?.rmse ?? '—'}, MAPE=${m.metrics?.mape ?? '—'}`,
-    `超參數：`, JSON.stringify(m.hyperparams||{}, null, 2)
-  ].join('\n');
-  $("#modelInfo").textContent = txt;
-
-  // === 混淆矩陣 & 回測（sample） ===
-  const back = await fetchJSON("./data/backtest_sample.json").catch(()=>({}));
-  const rows = back.data||[]; let TP=0,TN=0,FP=0,FN=0;
-  rows.forEach(r=>{
-    const p=(r.pred_dir==='up'), a=(r.actual_dir==='up');
-    if(p&&a)TP++; else if(!p&&!a)TN++; else if(p&&!a)FP++; else FN++;
-  });
-  const N=rows.length, acc=N?(TP+TN)/N:0, prec=(TP+FP)?TP/(TP+FP):0, rec=(TP+FN)?TP/(TP+FN):0;
-  if(!state.charts.cm) state.charts.cm = echarts.init(document.getElementById('cmChart'));
-  state.charts.cm.setOption({
-    tooltip: Object.assign(tipStyle('item'), { position:'top' }),
-    textStyle:{ color:C.fg },
-    grid:{ left:80, right:20, top:40, bottom:20 },
-    xAxis:{ type:'category', data:['預測↓ / 真實→','up','down'], show:false },
-    yAxis:{ type:'category', data:['up','down'], axisLabel:{ color:C.muted } },
-    visualMap:{
-      min:0, max:Math.max(1,TP+TN+FP+FN),
-      orient:'horizontal', left:'center', bottom:0, calculable:false,
-      inRange:{ color:['#fee2e2', '#22c55e'] } // 紅→綠漸層（更直覺） :contentReference[oaicite:2]{index=2}
-    },
-    series:[{ type:'heatmap', data:[[1,0,TP],[2,0,FP],[1,1,FN],[2,1,TN]], label:{ show:true, color:C.fg } }]
-  });
-  $("#btMetrics").innerHTML = `
-    <tr><th>樣本數 N</th><td class="mono">${N}</td></tr>
-    <tr><th>Accuracy</th><td class="mono">${(acc*100).toFixed(1)}%</td></tr>
-    <tr><th>Precision (上漲)</th><td class="mono">${(prec*100).toFixed(1)}%</td></tr>
-    <tr><th>Recall (上漲)</th><td class="mono">${(rec*100).toFixed(1)}%</td></tr>
-    <tr><th>F1</th><td class="mono">${(2*prec*rec/(prec+rec||1e-9)*100).toFixed(1)}%</td></tr>
-  `;
-
-  // === 新增：圓形指標（Accuracy / F1） ===
-  const f1 = (2*prec*rec/(prec+rec||1e-9));
-  const accPct = (acc*100).toFixed(1) + "%";
-  const f1Pct  = (f1 *100).toFixed(1) + "%";
-  const accEl = $("#accCircle"), f1El=$("#f1Circle");
-  if (accEl) {
-    accEl.textContent = accPct;
-    accEl.classList.remove('ok','warn','bad');
-    accEl.classList.add(acc>=0.7 ? 'ok' : acc>=0.5 ? 'warn' : 'bad');
-  }
-  if (f1El) {
-    f1El.textContent = f1Pct;
-    f1El.classList.remove('ok','warn','bad');
-    f1El.classList.add(f1>=0.7 ? 'ok' : f1>=0.5 ? 'warn' : 'bad');
-  }
-
-  // === 新增：資產走勢 vs 模型預測（累積報酬疊加線） ===
-  // 使用 backtest 的 delta_pred / delta_actual 做累積報酬；時間軸為 backtest timestamps。
-  const bx = rows.map(r=> r.timestamp.slice(0,16).replace('T',' '));
-  const cum = (arr)=>{
-    let v=1; return arr.map(pct=>{ v *= (1 + (+pct)/100); return v; });
-  };
-  const actCum = cum(rows.map(r=> +r.delta_actual));
-  const predCum= cum(rows.map(r=> +r.delta_pred));
-  if(!state.charts.overlay) state.charts.overlay = echarts.init(document.getElementById('overlayChart'));
-  state.charts.overlay.setOption({
-    backgroundColor:'transparent',
-    textStyle:{ color:C.fg }, legend:{ top:0, data:['實際（累積）','模型（累積）'] },
-    grid:{ left:50, right:20, top:30, bottom:40 },
-    xAxis:{ type:'category', data:bx, boundaryGap:false, axisLabel:{ color:C.muted } },
-    yAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
-    tooltip: tipStyle('axis'),
-    series:[
-      { type:'line', name:'實際（累積）', data:actCum, smooth:true, showSymbol:false },
-      { type:'line', name:'模型（累積）', data:predCum, smooth:true, showSymbol:false }
-    ]
-  });
-}
-
 // ====== 進入分頁 ======
 async function enterCoin(coin){
   $("#route-home").style.display = "none";
@@ -930,22 +775,67 @@ function mhRenderKPIs(){
   document.getElementById('mhViewW').textContent  = (w!=null)? mhFmt(w) : '—';
 }
 
+function pickKey(sample, candidates){
+  for (const k of candidates) if (k in sample) return k;
+  return null;
+}
+
 function mhRenderFeat(){
-  if(!MH.charts.feat){ MH.charts.feat = initEC('mhFeat'); window.addEventListener('resize', ()=> MH.charts.feat && MH.charts.feat.resize()); }
-  if(!MH.charts.feat) return; // 容器不存在就跳過
-  const rows = (MH.feat||[]).filter(r => (r.symbol||r.Symbol||'').toUpperCase()===MH.sym);
-  const fk = ['feature','Feature','name','Name'].find(k => k in (rows[0]||{})) || 'feature';
-  const vk = ['importance','Importance','gain','Gain','weight'].find(k => k in (rows[0]||{})) || 'importance';
-  const top = rows.map(r=>({f:r[fk],v:+r[vk]})).filter(x=>Number.isFinite(x.v)).sort((a,b)=>b.v-a.v).slice(0,20);
+  if(!MH.charts.feat){
+  MH.charts.feat = initEC('mhFeat');   // ← 用 initEC
+  if(!MH.charts.feat) return;          // ← 沒容器就跳出
+  window.addEventListener('resize', ()=> MH.charts.feat && MH.charts.feat.resize());
+}
+
+  const rowsAll = MH.feat || [];
   const C = themeColors();
-  MH.charts.feat.setOption({
+  const baseOpt = {
     backgroundColor:'transparent', textStyle:{color:C.fg},
-    grid:{ left:80, right:20, top:20, bottom:30 },
+    grid:{ left:120, right:20, top:20, bottom:30 },
     xAxis:{ type:'value', axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
-    yAxis:{ type:'category', data: top.map(x=>x.f).reverse(), axisLabel:{ color:C.muted } },
-    series:[{ type:'bar', data: top.map(x=>x.v).reverse(), name:'重要度', barMaxWidth:22 }],
+    yAxis:{ type:'category', data:[], axisLabel:{ color:C.muted } },
+    series:[{ type:'bar', data:[], name:'重要度', barMaxWidth:22 }],
     tooltip: tipStyle('item')
-  });
+  };
+
+  if(!rowsAll.length){
+    MH.charts.feat.setOption(Object.assign({}, baseOpt, {
+      title:{ text:'沒有讀到 oos_feature_importance.csv', left:'center', top:'middle',
+              textStyle:{ color:C.muted, fontSize:14 } }
+    }));
+    return;
+  }
+
+  const sample = rowsAll[0];
+  const symK  = pickKey(sample, ['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
+  const viewK = pickKey(sample, ['view','View','view_name','ViewName','model_view','ModelView']);
+  const featK = pickKey(sample, ['feature','Feature','feature_name','name','Name','column']);
+  const valK  = pickKey(sample, ['importance','Importance','gain','Gain','weight','Weight','value','Value']);
+
+  let rows = rowsAll.slice();
+  if(symK)  rows = rows.filter(r => String(r[symK]||'').toUpperCase() === MH.sym);
+  if(viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === MH.view.toUpperCase());
+  // 若篩到空，退回「不過濾 symbol/view」
+  if(!rows.length) rows = rowsAll.slice();
+
+  const top = rows
+    .map(r => ({ f: r?.[featK], v: Number(r?.[valK]) }))
+    .filter(d => d.f != null && Number.isFinite(d.v))
+    .sort((a,b)=> b.v - a.v)
+    .slice(0, 20);
+
+  if(!top.length){
+    MH.charts.feat.setOption(Object.assign({}, baseOpt, {
+      title:{ text:'沒有對應欄位或數值為空', left:'center', top:'middle',
+              textStyle:{ color:C.muted, fontSize:14 } }
+    }));
+    return;
+  }
+
+  MH.charts.feat.setOption(Object.assign({}, baseOpt, {
+    yAxis:{ type:'category', data: top.map(x=>x.f).reverse(), axisLabel:{ color:C.muted } },
+    series:[{ type:'bar', data: top.map(x=>x.v).reverse(), barMaxWidth:22 }]
+  }));
 }
 
 function mhRenderViewW(){
@@ -969,17 +859,48 @@ function mhRenderOOF(){
   const tbody = document.querySelector('#mhOOF tbody');
   thead.innerHTML = `<tr><th>Symbol</th><th>View</th><th>Fold</th><th>ACC</th><th>F1</th><th>AUC</th><th>BACC</th></tr>`;
   tbody.innerHTML = '';
-  const pick = (r,keys)=>{ const k=keys.find(x=>x in r); return k? r[k] : null; };
-  MH.oof.filter(r => (pick(r,['symbol','Symbol'])||'').toUpperCase()===MH.sym).forEach(r=>{
+
+  const rowsAll = MH.oof || [];
+  if(!rowsAll.length){
+    tbody.innerHTML = `<tr><td colspan="7">—</td></tr>`;
+    return;
+  }
+
+  const s = rowsAll[0];
+  const symK  = pickKey(s, ['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
+  const viewK = pickKey(s, ['view','View','view_name','ViewName','model_view','ModelView']);
+  const foldK = pickKey(s, ['fold','Fold','kfold','cv','CV']);
+  const accK  = pickKey(s, ['acc','ACC','accuracy','Accuracy']);
+  const f1K   = pickKey(s, ['f1','F1','macro_f1','MacroF1']);
+  const aucK  = pickKey(s, ['auc','AUC','roc_auc','ROC_AUC']);
+  const baccK = pickKey(s, ['bacc','BACC','balanced_accuracy','Balanced_Accuracy']);
+
+  let rows = rowsAll.slice();
+  if(symK)  rows = rows.filter(r => String(r[symK]||'').toUpperCase() === MH.sym);
+  if(viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === MH.view.toUpperCase());
+
+  if(!rows.length){
+    tbody.innerHTML = `<tr><td colspan="7">（沒有符合目前 Symbol/View 的紀錄）</td></tr>`;
+    return;
+  }
+
+  const fmt = (k,r) => {
+    if(!k) return '—';
+    const v = r[k];
+    const n = Number(v);
+    return (v==null || v==='') ? '—' : Number.isFinite(n) ? n.toFixed(3) : String(v);
+  };
+
+  rows.forEach(r=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${(pick(r,['symbol','Symbol'])||'').toUpperCase()}</td>
-      <td>${(pick(r,['view','View'])||'').toUpperCase()}</td>
-      <td>${pick(r,['fold','Fold'])??'—'}</td>
-      <td>${mhFmt(pick(r,['acc','ACC','accuracy','Accuracy']))}</td>
-      <td>${mhFmt(pick(r,['f1','F1']))}</td>
-      <td>${mhFmt(pick(r,['auc','AUC']))}</td>
-      <td>${mhFmt(pick(r,['bacc','BACC','balanced_accuracy','Balanced_Accuracy']))}</td>
+      <td>${symK? String(r[symK]).toUpperCase() : MH.sym}</td>
+      <td>${viewK? (r[viewK] ?? MH.view) : MH.view}</td>
+      <td>${foldK? (r[foldK] ?? '—') : '—'}</td>
+      <td class="mono">${fmt(accK,r)}</td>
+      <td class="mono">${fmt(f1K,r)}</td>
+      <td class="mono">${fmt(aucK,r)}</td>
+      <td class="mono">${fmt(baccK,r)}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -990,14 +911,21 @@ function mhRenderBT(){
   const tbody = document.querySelector('#mhBT tbody');
   thead.innerHTML = ''; tbody.innerHTML = '';
   if(!(MH.bt?.length)) return;
-  const cols = Object.keys(MH.bt[0]);
+
+  const sample = MH.bt[0];
+  const symK = pickKey(sample, ['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker']); // ← 新增多種別名
+
+  const cols = Object.keys(sample);
   thead.innerHTML = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
-  const hasSym = cols.some(c => c.toLowerCase()==='symbol');
-  const rows = hasSym ? MH.bt.filter(r => String(r.Symbol||r.symbol||'').toUpperCase()===MH.sym) : MH.bt;
+
+  // 依幣別過濾（若檔案沒有幣別欄位就不過濾）
+  const rows = symK ? MH.bt.filter(r => String(r[symK]||'').toUpperCase()===MH.sym) : MH.bt;
+
   rows.forEach(r=>{
     const tr = document.createElement('tr');
     tr.innerHTML = cols.map(c=>{
-      const v=r[c]; return `<td>${Number.isFinite(Number(v)) ? mhFmt(v) : (v??'—')}</td>`;
+      const v=r[c];
+      return `<td>${Number.isFinite(Number(v)) ? mhFmt(v) : (v??'—')}</td>`;
     }).join('');
     tbody.appendChild(tr);
   });
