@@ -3,7 +3,7 @@ const SUPABASE_URL = "https://iwvvlhpfffflnwdsdwqs.supabase.co";        // ← �
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3dnZsaHBmZmZmbG53ZHNkd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzNDAxMDEsImV4cCI6MjA2NzkxNjEwMX0.uxFt3jCbQXlVNtGKeOr6Vdxb1tWMiYd8N-LfugsMiwU"; // ← 換你的 anon key
 const PRICES_TABLE  = "prices_daily"; // 你提供的每日資料表
 // 指標（圖一）若你的後端也有就改這些名稱；否則本程式會以前端計算的對應值來畫
-const INDICATORS_TABLE = null; // 例如 "indicators_daily"；若為 null 就前端計算
+const INDICATORS_TABLE = "api_features_flat"; // 例如 "indicators_daily"；若為 null 就前端計算
 
 // ====== 共用 ======
 const $ = (s)=>document.querySelector(s);
@@ -145,6 +145,102 @@ async function getOHLC(coin){
   state.source = 'sample';
   const sample = await loadSample();
   return (sample[coin] || []).map(r => ({ t:r.t, o:+r.o, h:+r.h, l:+r.l, c:+r.c, v:+r.v }));
+}
+
+async function hydrateIndicators(coin, rows){
+  // 先做一份完整的前端計算，當作「底」
+  const localInd = buildIndicators(rows);
+
+  // 再試著抓 Supabase 的指標
+  const sbInd = await fetchIndicatorsFromSB(coin);
+
+  // 合併：Supabase 有的鍵覆蓋掉前端；Supabase 沒提供的(K/D/J、bb_*等)仍保留
+  state.ind = sbInd && Object.keys(sbInd).length
+    ? { ...localInd, ...sbInd }
+    : localInd;
+
+  return sbInd ? 'supabase' : 'frontend';
+}
+
+async function fetchIndicatorsFromSB(coin) {
+  if (!INDICATORS_TABLE) return null;
+  const sym = String(coin || "").toUpperCase();
+  const base = SUPABASE_URL.replace(/\/$/, '');
+  const pageSize = 2000;   // 視需求調整
+  let lastDt = '';         // 字串日期游標
+  let all = [];
+
+  while (true) {
+    const q = new URLSearchParams({
+      select: 'dt,asset_code,px_close,rsi14,rsi30,macd,macd_signal,ma5r,ma20r,ma50r,band_bb_w,band_kc_w,atr14,vol_z20,ret_1d,ret_5d,ret_20d,oi_change,oi_pct1,funding_z7,liq_abs,liq_net,exch_balance_pct_1d,week_ret_1w,week_rsi_1w,week_ma_cross_1w',
+      asset_code: `eq.${sym}`,
+      order: 'dt.asc',
+      limit: String(pageSize),
+      ...(lastDt ? { dt: `gt.${lastDt}` } : {})
+    });
+    const url = `${base}/rest/v1/${INDICATORS_TABLE}?${q.toString()}`;
+
+    let rows = [];
+    try {
+      rows = await fetchJSON(url, {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          Accept: 'application/json',
+          'Accept-Profile': 'predictor'
+        }
+      });
+    } catch (e) {
+      console.warn('[indicators] Supabase 取數失敗', e);
+      return null; // 交給上層 fallback
+    }
+
+    if (!rows.length) break;
+    all = all.concat(rows);
+    lastDt = rows[rows.length - 1].dt;
+    if (rows.length < pageSize) break;
+  }
+
+  if (!all.length) return null;
+
+  // 1) 小工具：把每個欄位抽成數列（缺值→NaN）
+  const byKey = k => all.map(r => (r[k] == null ? NaN : +r[k]));
+
+  // 2) 先取出 DIF / DEA
+  const macd_dif = byKey('macd');           // 後端欄位名：macd
+  const macd_dea = byKey('macd_signal');    // 後端欄位名：macd_signal
+
+  // 3) 柱狀圖：Histogram = DIF - DEA
+  const macd_hist = macd_dif.map((v, i) =>
+    (Number.isFinite(v) && Number.isFinite(macd_dea[i])) ? (v - macd_dea[i]) : NaN
+  );
+
+  // 4) 回傳給圖表用的物件
+  return {
+    // 技術指標
+    rsi14:      byKey('rsi14'),
+    macd_dif,   // 給「DIF」線
+    macd_dea,   // 給「DEA」線
+    macd_hist,  // 給「Hist」柱
+
+    // 你 view 有提供的其餘欄位
+    bbw:        byKey('band_bb_w'),
+    atr14:      byKey('atr14'),
+
+    // 報酬 / 衍生品 / 資金流...
+    log_r1:     byKey('ret_1d'),
+    log_r5:     byKey('ret_5d'),
+    log_r30:    byKey('ret_20d'),   // 先暫接到 30 線位
+    oi_change:  byKey('oi_change'),
+    oi_pct1:    byKey('oi_pct1'),
+    funding_z7: byKey('funding_z7'),
+    liq_abs:    byKey('liq_abs'),
+    liq_net:    byKey('liq_net'),
+    exch_bal_1d:byKey('exch_balance_pct_1d'),
+    week_ret_1w:byKey('week_ret_1w'),
+    week_rsi_1w:byKey('week_rsi_1w'),
+    week_ma_x_1w: byKey('week_ma_cross_1w')
+  };
 }
 
 // ====== 模型預測（先用 sample，可換成你的 API） ======
@@ -354,22 +450,10 @@ function renderCoinPage(coin, rows){
     yPred = state.pred.y_pred;
     ci = state.pred?.ci || ci;
     horizonH = state.pred?.horizon_hours ?? 6;
-  } else if (coin === 'ETH') {
-    yPred = 4253.94; // 題主暫定值
-  }
+  } 
 
   // 把預測點與區間帶畫在 K 線圖上（markPoint / markArea）
   // 參考：ECharts markPoint / markArea 官方說明（candlestick 也支援） :contentReference[oaicite:1]{index=1}
-  const mpData = (Number.isFinite(yPred) && x.length)
-    ? [{ name:'y_pred', xAxis:x.at(-1), yAxis:yPred, itemStyle:{color:'#22c55e'} }]
-    : [];
-
-  const maData = (Number.isFinite(last) && ci && ci.length===2)
-    ? [[
-        { xAxis:x.at(-1), yAxis:last*(1+ci[0]) },
-        { xAxis:x.at(-1), yAxis:last*(1+ci[1]) }
-      ]]
-    : [];
 
   state.charts.k.setOption({
     backgroundColor:'transparent', textStyle:{ color:C.fg },
@@ -378,10 +462,11 @@ function renderCoinPage(coin, rows){
     yAxis:{ scale:true, axisLabel:{ color:C.muted }, splitLine:{ lineStyle:{ color:C.grid } } },
     dataZoom:[{type:'inside'},{type:'slider', textStyle:{ color:C.muted }}],
     tooltip: tipStyle('axis'),
-    series:[{ type:'candlestick', name:`${coin} 1D`, data:k,
-      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' },
-      markPoint:{ symbol:'circle', symbolSize:12, data: mpData },
-      markArea:{ itemStyle:{ color:'rgba(34,197,94,0.15)' }, data: maData }
+    series: [{
+      type:'candlestick',
+      name:`${coin} 1D`,
+      data:k,
+      itemStyle:{ color:'#ef4444', color0:'#10b981', borderColor:'#ef4444', borderColor0:'#10b981' }
     }]
   });
 
@@ -458,7 +543,7 @@ function renderCoinPage(coin, rows){
   (() => {
     // 顯示 y_pred
     const yEl = document.getElementById('yPred');
-    if (yEl) yEl.textContent = (typeof yPred === 'number') ? yPred.toFixed(2) : '—';
+    if (yEl) yEl.textContent = (typeof yPred === 'number') ? (yPred*100).toFixed(1) + '%' : '—';
 
     // API 狀態指示燈
     const dot = document.getElementById('apiDot');
@@ -477,15 +562,12 @@ function renderCoinPage(coin, rows){
     const predBox = document.getElementById('predSummary');
     if (predBox) {
       let html;
-      if (Number.isFinite(last) && Number.isFinite(yPred)) {
-        const pct = (yPred / last - 1) * 100;
-        const ciLow = (ci[0] * 100).toFixed(2);
-        const ciHigh = (ci[1] * 100).toFixed(2);
-        const dir = pct >= 0 ? '上漲' : '下跌';
-        const arrow = pct >= 0 ? '<span class="arrow up">↑</span>' : '<span class="arrow down">↓</span>';
-        html = `${arrow} 未來 ${horizonH}h ${dir} ${pct>=0?'+':''}${pct.toFixed(2)}%<br>(95% CI ${ciLow}% ~ ${ciHigh}%)`;
+      if (Number.isFinite(yPred)) {
+        const prob = (yPred * 100).toFixed(1);
+        html = `上漲機率：<span class="mono" style="font-size:22px;font-weight:800;">${prob}%</span><br>
+                時窗：${horizonH}h`;
       } else {
-        html = `<span class="arrow up">↑</span> 未來 6h 上漲 +1.67%<br>(95%信心區間 1.0%~2.34%)`;
+        html = `上漲機率：—`;
       }
       predBox.innerHTML = html;
     }
@@ -683,7 +765,7 @@ async function enterCoin(coin){
   Object.values(state.charts).forEach(ch=> ch && ch.clear());
 
   state.ohlc = await getOHLC(coin);
-  state.ind  = buildIndicators(state.ohlc);
+  await hydrateIndicators(coin, state.ohlc); // ← 這行會自動：Supabase→前端
 
   state.pred = null;
   state.pred_source = 'none';
