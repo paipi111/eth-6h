@@ -1275,7 +1275,15 @@ function mhRenderKPIs(){
 }
 
 function pickKey(sample, candidates){
-  for (const k of candidates) if (k in sample) return k;
+  const keys = Object.keys(sample || {});
+  for (const want of candidates){
+    const hit = keys.find(k =>
+      k.replace(/^\uFEFF/, '')                 // 去 BOM
+       .replace(/\s+/g,'')                     // 去空白
+       .toLowerCase() === String(want).replace(/\s+/g,'').toLowerCase()
+    );
+    if (hit) return hit;
+  }
   return null;
 }
 
@@ -1285,6 +1293,7 @@ function mhRenderFeat(){
     if(!MH.charts.feat) return;
     window.addEventListener('resize', ()=> MH.charts.feat && MH.charts.feat.resize());
   }
+
   const rowsAll = MH.feat || [];
   const C = themeColors();
   const baseOpt = {
@@ -1295,6 +1304,7 @@ function mhRenderFeat(){
     series:[{ type:'bar', data:[], name:'重要度', barMaxWidth:22 }],
     tooltip: tipStyle('item')
   };
+
   if(!rowsAll.length){
     MH.charts.feat.setOption(Object.assign({}, baseOpt, {
       title:{ text:'沒有讀到 oos_feature_importance.csv', left:'center', top:'middle',
@@ -1303,51 +1313,46 @@ function mhRenderFeat(){
     return;
   }
 
-  const s = rowsAll[0];
-  const symK  = pickKey(s, ['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
-  const viewK = pickKey(s, ['view','View','view_name','ViewName','model_view','ModelView']);
-  const featK = pickKey(s, ['feature','Feature','feature_name','name','Name','column']);
-  const valK  = pickKey(s, ['importance','Importance','gain','Gain','weight','Weight','value','Value','importance_mean','Importance_mean']);
+  // 🔎 更強韌的欄位偵測（大小寫/空白/別名）
+  const s = rowsAll[0] || {};
+  const symK  = pickKey(s, ['symbol','coin','asset','asset_code','ticker']);
+  const viewK = pickKey(s, ['view','view_tag','view_name','model_view']);
+  const featK = pickKey(s, ['feature','feature_name','name','column']);
+  const valK  = pickKey(s, ['importance','gain','weight','value','imp']);
 
-  let rows = rowsAll.slice();
-  if (symK) rows = rows.filter(r => String(r[symK]||'').toUpperCase() === MH.sym);
-
-  let top = [];
-  const cur = String(MH.view||'').toUpperCase();
-
-  if (cur === 'ENS'){
-    // 先找原生 ENS
-    const ensRows = viewK ? rows.filter(r => String(r[viewK]||'').toUpperCase()==='ENS') : [];
-    if (ensRows.length){
-      top = ensRows.map(r=>({ f:r?.[featK], v:Number(r?.[valK]) }))
-                   .filter(d=>d.f && Number.isFinite(d.v))
-                   .sort((a,b)=>b.v-a.v).slice(0,20);
-    }else{
-      // 沒有原生 ENS → 用權重把 V* 加總
-      const w = MH.weights?.[MH.sym] || {};
-      const acc = new Map();
-      (viewK ? rows.filter(r => /^V\d+$/i.test(String(r[viewK]||''))) : rows).forEach(r=>{
-        const vtag = viewK ? String(r[viewK]).toUpperCase() : '';
-        const ww   = +w[vtag] || 0;
-        const f = r?.[featK]; const iv = Number(r?.[valK]);
-        if (!f || !Number.isFinite(iv) || !ww) return;
-        acc.set(f, (acc.get(f)||0) + ww*iv);
-      });
-      top = Array.from(acc.entries()).map(([f,v])=>({f,v}))
-                 .sort((a,b)=>b.v-a.v).slice(0,20);
-    }
-  } else {
-    // 一般單一 view（沒有 view 欄位就不過濾）
-    if (viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === cur);
-    top = rows.map(r=>({ f:r?.[featK], v:Number(r?.[valK]) }))
-              .filter(d=>d.f && Number.isFinite(d.v))
-              .sort((a,b)=>b.v-a.v).slice(0,20);
+  if(!featK || !valK){
+    MH.charts.feat.setOption(Object.assign({}, baseOpt, {
+      title:{ text:'沒有對應欄位（feature / importance）', left:'center', top:'middle',
+              textStyle:{ color:C.muted, fontSize:14 } }
+    }));
+    return;
   }
 
-  if (!top.length){
-    console.warn('[feat] key detection miss', {symK, viewK, featK, valK, sample:s});
+  // 🧪 漸進式篩選：先 Symbol+View → 若空則退回「只 Symbol」→ 再退回「不過濾」
+  const wantSym  = (MH.sym || '').toUpperCase();
+  const wantView = (MH.view || '').toUpperCase();
+  const nor = v => String(v ?? '').trim().toUpperCase();
+
+  let rows = rowsAll.slice();
+  if (symK)  rows = rows.filter(r => !symK || nor(r[symK])  === wantSym);
+  if (viewK) rows = rows.filter(r => !viewK || nor(r[viewK]) === wantView);
+
+  if (!rows.length && symK) rows = rowsAll.filter(r => nor(r[symK]) === wantSym);
+  if (!rows.length) rows = rowsAll.slice();
+
+  // 數值轉換更寬鬆（去逗號/空白、支援科學記號）
+  const top = rows
+    .map(r => ({
+      f: String(r[featK] ?? '').trim(),
+      v: Number(String(r[valK] ?? '').replace(/,/g,'').trim())
+    }))
+    .filter(d => d.f && Number.isFinite(d.v))
+    .sort((a,b)=> b.v - a.v)
+    .slice(0, 20);
+
+  if(!top.length){
     MH.charts.feat.setOption(Object.assign({}, baseOpt, {
-      title:{ text:'沒有對應欄位或數值為空', left:'center', top:'middle',
+      title:{ text:'沒有對應資料（已嘗試放寬條件）', left:'center', top:'middle',
               textStyle:{ color:C.muted, fontSize:14 } }
     }));
     return;
@@ -1392,23 +1397,25 @@ function mhRenderOOF(){
     tbody.innerHTML = `<tr><td colspan="7">—</td></tr>`;
     return;
   }
-  const s = rowsAll[0];
-  const symK  = pickKey(s, ['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
-  const viewK = pickKey(s, ['view','View','view_name','ViewName','model_view','ModelView']);
-  const foldK = pickKey(s, ['fold','Fold','kfold','cv','CV']);
-  const accK  = pickKey(s, ['acc','ACC','accuracy','Accuracy']);
-  const f1K   = pickKey(s, ['f1','F1','macro_f1','MacroF1']);
-  const aucK  = pickKey(s, ['auc','AUC','roc_auc','ROC_AUC']);
-  const baccK = pickKey(s, ['bacc','BACC','balanced_accuracy','Balanced_Accuracy']);
+  const s = rowsAll[0] || {};
+  const symK  = pickKey(s, ['symbol','coin','asset','asset_code','ticker']);
+  const viewK = pickKey(s, ['view','view_tag','view_name','model_view']);
+  const foldK = pickKey(s, ['fold','kfold','cv']);
+  const accK  = pickKey(s, ['acc','accuracy']);
+  const f1K   = pickKey(s, ['f1','macro_f1']);
+  const aucK  = pickKey(s, ['auc','roc_auc']);
+  const baccK = pickKey(s, ['bacc','balanced_accuracy']);
+
+  const nor = v => String(v ?? '').trim().toUpperCase();
+  const wantSym  = (MH.sym || '').toUpperCase();
+  const wantView = (MH.view || '').toUpperCase();
 
   let rows = rowsAll.slice();
-  if(symK)  rows = rows.filter(r => String(r[symK]||'').toUpperCase() === MH.sym);
-  if(viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === MH.view.toUpperCase());
+  if (symK)  rows = rows.filter(r => nor(r[symK])  === wantSym);
+  if (viewK) rows = rows.filter(r => nor(r[viewK]) === wantView);
 
-  if(!rows.length){
-    tbody.innerHTML = `<tr><td colspan="7">（沒有符合目前 Symbol/View 的紀錄）</td></tr>`;
-    return;
-  }
+  if (!rows.length && symK) rows = rowsAll.filter(r => nor(r[symK]) === wantSym);
+  if (!rows.length) rows = rowsAll.slice();
 
   const fmt = (k,r) => { if(!k) return '—'; const v=r[k], n=Number(v); return (v==null||v==='')?'—':(Number.isFinite(n)?n.toFixed(3):String(v)); };
   rows.forEach(r=>{
