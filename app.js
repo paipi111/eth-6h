@@ -1021,21 +1021,10 @@ async function fetchTradesLatest(asset='BTC', view='V1', limit=50){
 
 function renderTradeLog(rows){
   const tbody = document.querySelector('#recentPredTable tbody');
-  if(!tbody){ return; }
+  if(!tbody) return;
 
-  const get = (row, ks)=> {
-    for(const k of ks){ if(k in row) return row[k]; }
-    return null;
-  };
+  const get = (row, ks)=> { for(const k of ks){ if(k in row) return row[k]; } return null; };
   const fmtNum = (v, d=2)=> Number.isFinite(+v) ? (+v).toFixed(d) : '—';
-  const fmtPct = (v)=> {
-    if(v==null) return '—';
-    const n = +v;
-    if(!Number.isFinite(n)) return '—';
-    // 若是小數就 *100，若已是百分比（>1）就直接用
-    const p = Math.abs(n) <= 1 ? n*100 : n;
-    return p.toFixed(2) + '%';
-  };
 
   const html = (rows||[]).map(row=>{
     const open_dt  = get(row, ['open_dt','entry_dt','open_date']);
@@ -1046,11 +1035,7 @@ function renderTradeLog(rows){
 
     const open_px  = +get(row, ['open_px','entry_px','px_open','open_price']);
     const close_px = +get(row, ['close_px','exit_px','px_close','close_price']);
-    const ret = get(row, ['ret','ret_pct','pnl_pct','return_pct']);
 
-    const days = get(row, ['holding_days','days','n_days']);
-
-    const col = (+ret >= 0) ? '#22c55e' : '#ef4444';
     return `
       <tr>
         <td class="mono">${open_dt || '—'}</td>
@@ -1058,13 +1043,11 @@ function renderTradeLog(rows){
         <td style="color:${sideCol};font-weight:700;">${sideStr}</td>
         <td class="mono num">${fmtNum(open_px)}</td>
         <td class="mono num">${fmtNum(close_px)}</td>
-        <td class="mono num" style="color:${col};font-weight:700;">${fmtPct(ret)}</td>
-        <td class="mono num">${Number.isFinite(+days) ? +days : '—'}</td>
       </tr>
     `;
   }).join('');
 
-  tbody.innerHTML = html || `<tr><td colspan="7">—</td></tr>`;
+  tbody.innerHTML = html || `<tr><td colspan="5">—</td></tr>`;
 }
 
 // A) 初始化（重設狀態 + 綁定 scroll 事件）
@@ -1356,7 +1339,7 @@ function mhRenderOOF(){
   if(viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === MH.view.toUpperCase());
 
   if(!rows.length){
-    tbody.innerHTML = `<tr><td colspan="7">（沒有符合目前 Symbol/View 的紀錄）</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5">（沒有符合目前 Symbol/View 的紀錄）</td></tr>`;
     return;
   }
 
