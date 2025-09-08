@@ -885,53 +885,17 @@ function renderCoinPage(coin, rows){
     ]
   }));
 
-  // ===== 右側：y_pred / API 狀態 / 預測摘要（升級：箭頭+百分比） =====
+  // ===== 右側：機率卡 + API 狀態（已移除預測摘要卡） =====
   (() => {
-    // 顯示 y_pred（下方大字）
-    const yEl = document.getElementById('yPred');
-    if (yEl) yEl.textContent =
-      (typeof yPred === 'number') ? ((yPred <= 1 ? yPred*100 : yPred).toFixed(1) + '%') : '—';
+    const yPred = state?.pred?.y_pred;      // 方向機率
+    const vPred = state?.pred?.vol_pred;    // 高波動機率
+    const upPct  = Number.isFinite(yPred) ? (yPred <= 1 ? yPred * 100 : yPred) : null;
+    const volPct = Number.isFinite(vPred) ? (vPred <= 1 ? vPred * 100 : vPred) : null;
 
-    // 右側摘要卡片（右側）
-    const predBox = document.getElementById('predSummary');
-    if (predBox) {
-      let html;
-      const yPred = state?.pred?.y_pred;      // 方向機率 (0~1 或 0~100)
-      const vPred = state?.pred?.vol_pred;    // 高波動機率 (0~1 或 0~100)
-
-      const upPct  = Number.isFinite(yPred) ? (yPred <= 1 ? yPred * 100 : yPred) : null;
-      const volPct = Number.isFinite(vPred) ? (vPred <= 1 ? vPred * 100 : vPred) : null;
-
-      const upEl  = document.getElementById('predUpVal');
-      const volEl = document.getElementById('predVolVal');
-
-      if (upEl)  upEl.textContent  = upPct  != null ? upPct.toFixed(1)  + '%' : '—';
-      if (volEl) volEl.textContent = volPct != null ? volPct.toFixed(1) + '%' : '—';
-      if (Number.isFinite(yPred)) {
-        const upPct  = (yPred <= 1 ? yPred * 100 : yPred);
-        const volPct = Number.isFinite(vPred) ? (vPred <= 1 ? vPred * 100 : vPred) : null;
-        const dt     = state.pred?.dt ? `（${state.pred.dt}）` : '';
-        const model  = state.pred?.model?.name ? ` · ${state.pred.model.name}` : '';
-
-        // 兩個數字並排：上漲機率 + 高波動機率
-        html = `
-          <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
-            <div>
-              <div class="muted" style="font-size:12px;">上漲機率</div>
-              <div class="mono" style="font-size:22px;font-weight:800;">${upPct.toFixed(1)}%</div>
-            </div>
-            <div>
-              <div class="muted" style="font-size:12px;">高波動機率</div>
-              <div class="mono" style="font-size:22px;font-weight:800;">${volPct!=null ? volPct.toFixed(1)+'%' : '—'}</div>
-            </div>
-          </div>
-          <div class="muted" style="margin-top:4px;">時窗：${state.pred?.horizon_hours ?? 24}h${model} ${dt}</div>
-        `;
-      } else {
-        html = `上漲機率：—`;
-      }
-      predBox.innerHTML = html;
-    }
+    const upEl  = document.getElementById('predUpVal');
+    const volEl = document.getElementById('predVolVal');
+    if (upEl)  upEl.textContent  = upPct  != null ? upPct.toFixed(1)  + '%' : '—';
+    if (volEl) volEl.textContent = volPct != null ? volPct.toFixed(1) + '%' : '—';
 
     // API 狀態指示燈
     const dot = document.getElementById('apiDot');
