@@ -144,6 +144,33 @@
       flex: 1;            /* 平均分配寬度 */
       min-width: 320px;   /* 確保手機上不會太小 */
     }
+    /* 兩欄 KPI 卡片 */
+    .kpi-pair{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px;
+      margin-bottom:16px; /* 下面若還有 API 狀態卡，留點距離 */
+    }
+
+    .kpi-pair .kpi{
+      background: var(--card); 
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+
+    .big-num{
+      font-size: 28px;
+      font-weight: 800;
+      text-align: center;
+      line-height: 1.1;
+      margin-top: 6px;
+    }
+
+    /* 手機自動疊成一欄 */
+    @media (max-width: 640px){
+      .kpi-pair{ grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body data-theme="light">
@@ -243,10 +270,16 @@
           <hr class="hr">
           <div class="grid2" id="kMeta">
             <div>
-              <div class="muted" style="text-align:center;">上漲機率 (y_pred)</div>
-              <div id="yPred" class="mono"
-                  style="font-size:42px; font-weight:800; text-align:center; margin-top:6px;">
-                —
+              <!-- 兩欄的機率卡 -->
+              <div class="card kpi-pair">
+                <div class="kpi mini">
+                  <div class="muted" style="text-align:center;">上漲機率 (y_pred)</div>
+                  <div id="predUpVal" class="big-num mono">—</div>
+                </div>
+                <div class="kpi mini">
+                  <div class="muted" style="text-align:center;">高波動機率 (vol_pred)</div>
+                  <div id="predVolVal" class="big-num mono">—</div>
+                </div>
               </div>
             </div>
             <div>

@@ -182,6 +182,24 @@ function groupByDate(rows) {
     .map(([dt, arr]) => ({ ...pickOneForDate(arr), dt }));
 }
 
+async function fetchTodayVolatility(asset = 'BTC') {
+  const url = `${SB_BASE}/api_vol_today?asset_code=eq.${asset}`;
+  const r = await fetch(url, { headers: SB_HEADERS });
+  if (!r.ok) throw new Error('api_vol_today failed');
+  const rows = await r.json();
+
+  // 後端如果一次回多筆模型（V1/V2/…），優先找 ENS 或取平均
+  if (!rows?.length) return null;
+
+  // 先找 ENS
+  const ens = rows.find(x => String(x.model_tag || '').toUpperCase() === 'ENS');
+  const base = ens || rows[0];
+
+  // 假設後端欄位為 prob_vol 或 y_pred（兩者擇一）
+  const p = Number(base.prob_vol ?? base.y_pred ?? NaN);
+  return Number.isFinite(p) ? { prob_vol: p, model: base.model_tag, dt: base.dt } : null;
+}
+
 async function fetchTodayPrediction(asset = 'BTC') {
   const base = `${SB_BASE}/predictions_daily`;
 
@@ -384,12 +402,23 @@ async function fetchIndicatorsFromSB(coin) {
 async function loadPredSample(coin) {
   try {
     const p = await fetchTodayPrediction(coin);
+    let vol = null;
+    try {
+      vol = await fetchTodayVolatility(coin);   // ← 新增：抓波動
+    } catch (e) {
+      console.warn('[vol] fetchTodayVolatility failed', e);
+    }
+
     if (p) {
       state.pred = {
-        y_pred: p.prob_up,          // 0~1
+        y_pred: p.prob_up,          // 0~1 上漲機率
         horizon_hours: 24,
         ci: null,
         model: { name: p.model },
+        // 新增：把波動機率也放到 state
+        vol_pred: vol?.prob_vol ?? null,
+        vol_model: vol?.model ?? null,
+        vol_dt: vol?.dt ?? null,
       };
       state.pred_source = 'supabase';
       return state.pred;
@@ -731,16 +760,41 @@ function renderCoinPage(coin, rows){
     if (yEl) yEl.textContent =
       (typeof yPred === 'number') ? ((yPred <= 1 ? yPred*100 : yPred).toFixed(1) + '%') : '—';
 
-    // 預測摘要卡片（右側）
+    // 右側摘要卡片（右側）
     const predBox = document.getElementById('predSummary');
     if (predBox) {
       let html;
+      const yPred = state?.pred?.y_pred;      // 方向機率 (0~1 或 0~100)
+      const vPred = state?.pred?.vol_pred;    // 高波動機率 (0~1 或 0~100)
+
+      const upPct  = Number.isFinite(yPred) ? (yPred <= 1 ? yPred * 100 : yPred) : null;
+      const volPct = Number.isFinite(vPred) ? (vPred <= 1 ? vPred * 100 : vPred) : null;
+
+      const upEl  = document.getElementById('predUpVal');
+      const volEl = document.getElementById('predVolVal');
+
+      if (upEl)  upEl.textContent  = upPct  != null ? upPct.toFixed(1)  + '%' : '—';
+      if (volEl) volEl.textContent = volPct != null ? volPct.toFixed(1) + '%' : '—';
       if (Number.isFinite(yPred)) {
-        const probPct = (yPred <= 1 ? yPred * 100 : yPred);
-        const dt = state.pred?.dt ? `（${state.pred.dt}）` : '';
-        const model = state.pred?.model?.name ? ` · ${state.pred.model.name}` : '';
-        html = `上漲機率：<span class="mono" style="font-size:22px;font-weight:800;">${probPct.toFixed(1)}%</span><br>
-                時窗：${horizonH}h${model} ${dt}`;
+        const upPct  = (yPred <= 1 ? yPred * 100 : yPred);
+        const volPct = Number.isFinite(vPred) ? (vPred <= 1 ? vPred * 100 : vPred) : null;
+        const dt     = state.pred?.dt ? `（${state.pred.dt}）` : '';
+        const model  = state.pred?.model?.name ? ` · ${state.pred.model.name}` : '';
+
+        // 兩個數字並排：上漲機率 + 高波動機率
+        html = `
+          <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
+            <div>
+              <div class="muted" style="font-size:12px;">上漲機率</div>
+              <div class="mono" style="font-size:22px;font-weight:800;">${upPct.toFixed(1)}%</div>
+            </div>
+            <div>
+              <div class="muted" style="font-size:12px;">高波動機率</div>
+              <div class="mono" style="font-size:22px;font-weight:800;">${volPct!=null ? volPct.toFixed(1)+'%' : '—'}</div>
+            </div>
+          </div>
+          <div class="muted" style="margin-top:4px;">時窗：${state.pred?.horizon_hours ?? 24}h${model} ${dt}</div>
+        `;
       } else {
         html = `上漲機率：—`;
       }
