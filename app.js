@@ -1195,7 +1195,7 @@ function renderTradeLogAppend(rows){
   }).join('');
 
   if (!html && !tbody.children.length){
-    tbody.innerHTML = `<tr><td colspan="7">—</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5">—</td></tr>`;
   } else {
     tbody.insertAdjacentHTML('beforeend', html);
   }
