@@ -182,22 +182,58 @@ function groupByDate(rows) {
     .map(([dt, arr]) => ({ ...pickOneForDate(arr), dt }));
 }
 
+// 取得今日「波動」預測（高波動機率）——強化版：支援 view 與 rpc 兩種實作
 async function fetchTodayVolatility(asset = 'BTC') {
-  const url = `${SB_BASE}/api_vol_today?asset_code=eq.${asset}`;
-  const r = await fetch(url, { headers: SB_HEADERS });
-  if (!r.ok) throw new Error('api_vol_today failed');
-  const rows = await r.json();
+  const tryFetch = async (url) => {
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) throw new Error(`[vol] ${r.status} ${r.statusText} @ ${url}`);
+    return r.json();
+  };
 
-  // 後端如果一次回多筆模型（V1/V2/…），優先找 ENS 或取平均
-  if (!rows?.length) return null;
+  const qs = new URLSearchParams({
+    asset_code: `eq.${asset}`,
+    select: 'asset_code,model_tag,dt,prob_vol,y_pred'   // ← 明確要欄位
+  });
 
-  // 先找 ENS
-  const ens = rows.find(x => String(x.model_tag || '').toUpperCase() === 'ENS');
+  let rows = [];
+  try {
+    // 情況 A：api_vol_today 是一個 VIEW（常見）
+    rows = await tryFetch(`${SB_BASE}/api_vol_today?${qs}`);
+  } catch (e1) {
+    console.warn('[vol] view 失敗，嘗試 rpc', e1);
+    try {
+      // 情況 B：api_vol_today 是一個 RPC（function）
+      // 許多團隊把參數放在 JSON body；這裡同時嘗試 querystring 與 body 兩種
+      const rpcUrl = `${SB_BASE}/rpc/api_vol_today`;
+      let r = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { ...SB_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asset_code: asset })
+      });
+      if (!r.ok) throw new Error(`[vol-rpc] ${r.status} ${r.statusText}`);
+      rows = await r.json();
+      if (!Array.isArray(rows)) rows = Array.isArray(rows?.data) ? rows.data : [rows];
+    } catch (e2) {
+      console.error('[vol] view/rpc 都失敗', e2);
+      return null;
+    }
+  }
+
+  if (!rows?.length) {
+    console.warn('[vol] 空結果：', rows);
+    return null;
+  }
+
+  // 先找 ENS，其次第一筆；欄位可能叫 prob_vol 或 y_pred
+  const ens  = rows.find(x => String(x.model_tag || '').toUpperCase() === 'ENS');
   const base = ens || rows[0];
-
-  // 假設後端欄位為 prob_vol 或 y_pred（兩者擇一）
   const p = Number(base.prob_vol ?? base.y_pred ?? NaN);
-  return Number.isFinite(p) ? { prob_vol: p, model: base.model_tag, dt: base.dt } : null;
+  if (!Number.isFinite(p)) {
+    console.warn('[vol] 找不到 prob_vol/y_pred 欄位：', base);
+    return null;
+  }
+  console.log('[vol] OK:', { asset, model: base.model_tag, prob_vol: p, dt: base.dt });
+  return { prob_vol: p, model: base.model_tag, dt: base.dt };
 }
 
 async function fetchTodayPrediction(asset = 'BTC') {
