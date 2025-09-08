@@ -1046,11 +1046,7 @@ function renderTradeLog(rows){
 
     const open_px  = +get(row, ['open_px','entry_px','px_open','open_price']);
     const close_px = +get(row, ['close_px','exit_px','px_close','close_price']);
-
-    let ret = get(row, ['ret','ret_pct','pnl_pct','return_pct']);
-    if(ret==null && Number.isFinite(open_px) && Number.isFinite(close_px)){
-      ret = (close_px / open_px - 1);   // 自算報酬
-    }
+    const ret = get(row, ['ret','ret_pct','pnl_pct','return_pct']);
 
     const days = get(row, ['holding_days','days','n_days']);
 
@@ -1189,10 +1185,7 @@ function renderTradeLogAppend(rows){
     const open_px  = +get(row, ['open_px','entry_px','px_open','open_price']);
     const close_px = +get(row, ['close_px','exit_px','px_close','close_price']);
 
-    let ret = get(row, ['ret','ret_pct','pnl_pct','return_pct']);
-    if(ret==null && Number.isFinite(open_px) && Number.isFinite(close_px)){
-      ret = (close_px / open_px - 1);
-    }
+    const ret = get(row, ['ret','ret_pct','pnl_pct','return_pct']);
     const days = get(row, ['holding_days','days','n_days']);
     const col  = (+ret >= 0) ? '#22c55e' : '#ef4444';
 
