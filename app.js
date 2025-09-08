@@ -344,20 +344,64 @@ function currentRoute(){
 window.addEventListener('hashchange', main);
 
 async function fetchKlineNav(asset = 'ETH', view = 'ENS') {
-  const q = new URLSearchParams({
-    asset_code: `eq.${asset}`,
-    view_tag:   `eq.${view}`,
-    strategy:   `eq.atr1pct_long_only`,
-    order:      'dt.asc',
-  });
-  const url = `${SB_BASE}/api_kline_nav?${q}`; 
-  const r = await fetch(url, { headers: SB_HEADERS });
-  if (!r.ok) throw new Error('api_kline_nav failed');
-  const rows = await r.json();
-  if (!rows?.length) throw new Error('api_kline_nav empty');
+  const pageSize = 2000;
+  const out = [];
 
-  // 轉成全站統一用的 t/o/h/l/c 欄位
-  return rows.map(d => ({
+  // --- 方案 A：keyset 分頁（最快、最省資源）
+  let lastDt = '';
+  for (let page = 0; page < 200; page++) { // safety cap
+    const qs = new URLSearchParams({
+      asset_code: `eq.${asset}`,
+      view_tag:   `eq.${view}`,
+      strategy:   `eq.atr1pct_long_only`,
+      order:      'dt.asc',
+      limit:      String(pageSize),
+      ...(lastDt ? { dt: `gt.${lastDt}` } : {})
+    });
+    const url = `${SB_BASE}/api_kline_nav?${qs}`;
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) {
+      console.warn('[kline] keyset 分頁失敗，嘗試 Range offset：', r.status, r.statusText);
+      lastDt = null; // 觸發 fallback
+      break;
+    }
+    const rows = await r.json();
+    if (!rows.length) break;
+    out.push(...rows);
+    lastDt = rows.at(-1).dt;
+    if (rows.length < pageSize) break; // 已抓完
+  }
+
+  // --- 方案 B：Range offset 分頁（某些 view 不支援 dt 過濾就用這招）
+  if (lastDt === null) {
+    let offset = 0;
+    for (let page = 0; page < 200; page++) { // safety cap
+      const qs = new URLSearchParams({
+        asset_code: `eq.${asset}`,
+        view_tag:   `eq.${view}`,
+        strategy:   `eq.atr1pct_long_only`,
+        order:      'dt.asc'
+      });
+      const url = `${SB_BASE}/api_kline_nav?${qs}`;
+      const r = await fetch(url, {
+        headers: {
+          ...SB_HEADERS,
+          Range: `rows=${offset}-${offset + pageSize - 1}`
+        }
+      });
+      if (!r.ok) throw new Error(`[kline] Range 分頁失敗 ${r.status} ${r.statusText}`);
+      const rows = await r.json();
+      if (!rows.length) break;
+      out.push(...rows);
+      offset += rows.length;
+      if (rows.length < pageSize) break; // 已抓完
+    }
+  }
+
+  if (!out.length) throw new Error('api_kline_nav empty');
+
+  // 轉成全站統一欄位
+  return out.map(d => ({
     t: d.dt,
     o: +d.open,
     h: +d.high,
