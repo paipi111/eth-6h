@@ -1159,39 +1159,26 @@ function renderTradeLogAppend(rows){
   const tbody = document.querySelector('#recentPredTable tbody');
   if(!tbody) return;
 
-  const get = (row, ks)=> { for(const k of ks){ if(k in row) return row[k]; } return null; };
-  const fmtNum = (v, d=2)=> Number.isFinite(+v) ? (+v).toFixed(d) : '—';
-  const fmtPct = (v)=> {
-    if(v==null) return '—';
-    const n = +v; if(!Number.isFinite(n)) return '—';
-    const p = Math.abs(n) <= 1 ? n*100 : n;   // 比例 or 百分比 都支援
-    return p.toFixed(2) + '%';
-  };
+  const pick = (row, ks)=> { for(const k of ks){ if(k in row) return row[k]; } return null; };
+  const n = (v, d=2)=> Number.isFinite(+v) ? (+v).toFixed(d) : '—';
 
-  const html = (rows||[]).map(row=>{
-    const open_dt  = get(row, ['open_dt','entry_dt','open_date']);
-    const close_dt = get(row, ['close_dt','exit_dt','close_date']);
-    const sideRaw  = (get(row, ['side','direction']) || 'long').toString().toLowerCase();
+  const html = (rows||[]).map(r=>{
+    const open_dt  = pick(r, ['open_dt','entry_dt','open_date']);
+    const close_dt = pick(r, ['close_dt','exit_dt','close_date']);
+    const sideRaw  = (pick(r, ['side','direction']) || 'long').toString().toLowerCase();
     const sideStr  = sideRaw.includes('short') ? 'short' : 'long';
     const sideCol  = sideStr==='short' ? '#ef4444' : '#22c55e';
-    const open_px  = +get(row, ['open_px','entry_px','px_open','open_price']);
-    const close_px = +get(row, ['close_px','exit_px','px_close','close_price']);
-
-    const ret = get(row, ['ret','ret_pct','pnl_pct','return_pct']);
-    const days = get(row, ['holding_days','days','n_days']);
-    const col  = (+ret >= 0) ? '#22c55e' : '#ef4444';
+    const open_px  = +pick(r, ['open_px','entry_px','px_open','open_price']);
+    const close_px = +pick(r, ['close_px','exit_px','px_close','close_price']);
 
     return `
       <tr>
         <td class="mono">${open_dt || '—'}</td>
         <td class="mono">${close_dt || '—'}</td>
         <td style="color:${sideCol};font-weight:700;">${sideStr}</td>
-        <td class="mono num">${fmtNum(open_px)}</td>
-        <td class="mono num">${fmtNum(close_px)}</td>
-        <td class="mono num" style="color:${col};font-weight:700;">${fmtPct(ret)}</td>
-        <td class="mono num">${Number.isFinite(+days) ? +days : '—'}</td>
-      </tr>
-    `;
+        <td class="mono num">${n(open_px)}</td>
+        <td class="mono num">${n(close_px)}</td>
+      </tr>`;
   }).join('');
 
   if (!html && !tbody.children.length){
