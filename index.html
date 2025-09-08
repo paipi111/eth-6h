@@ -269,30 +269,23 @@
 
           <!-- ⬇︎ 搬過來的 y_pred + API 狀態 -->
           <hr class="hr">
-          <div class="grid2" id="kMeta">
-            <div>
-              <!-- 兩欄的機率卡 -->
-              <div class="card kpi-pair">
-                <div class="kpi mini">
-                  <div class="muted" style="text-align:center;">上漲機率 (y_pred)</div>
-                  <div id="predUpVal" class="big-num mono">—</div>
-                </div>
-                <div class="kpi mini">
-                  <div class="muted" style="text-align:center;">高波動機率 (vol_pred)</div>
-                  <div id="predVolVal" class="big-num mono">—</div>
-                </div>
-              </div>
+
+          <!-- 交易日誌（左側，無限下拉） -->
+          <div class="card" style="margin-top:8px;">
+            <div class="title">交易日誌（全部，無限下拉）</div>
+            <div class="tablewrap" id="tradeWrap" style="max-height:360px;">
+              <table id="recentPredTable" class="metrics">
+                <thead>
+                  <tr>
+                    <th>開倉</th><th>平倉</th><th>方向</th>
+                    <th class="num">開倉價</th><th class="num">平倉價</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
             </div>
-            <div>
-              <div class="muted">API 狀態</div>
-              <div class="badge" style="font-size:16px;">
-                <span id="apiDot" class="dot"></span>
-                <span id="apiLabel" class="mono">—</span>
-              </div>
-              <!-- 模型資料指示燈會由 app.js 自動插入 -->
-            </div>
+            <div id="tradeHint" class="muted" style="font-size:12px;margin-top:6px;">下拉載入更多…</div>
           </div>
-          <!-- ⬆︎ 搬過來的結束 -->
         </div>
 
         <div class="card" style="flex:1;">
@@ -313,20 +306,27 @@
             <a class="btn" href="https://discord.gg/your_invite" target="_blank" rel="noopener">Discord</a>
           </div>
 
-          <div class="card">
-            <div class="title">交易日誌（全部，無限下拉）</div>
-            <div class="tablewrap" id="tradeWrap" style="max-height:360px;">
-              <table id="recentPredTable" class="metrics">
-                <thead>
-                  <tr>
-                    <th>開倉</th><th>平倉</th><th>方向</th>
-                    <th class="num">開倉價</th><th class="num">平倉價</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
+          <hr class="hr hr-split">
+
+          <!-- 機率卡（上漲 / 高波動） -->
+          <div class="card kpi-pair" style="margin-top:8px;">
+            <div class="kpi mini">
+              <div class="muted" style="text-align:center;">上漲機率 (y_pred)</div>
+              <div id="predUpVal" class="big-num mono">—</div>
             </div>
-            <div id="tradeHint" class="muted" style="font-size:12px;margin-top:6px;">下拉載入更多…</div>
+            <div class="kpi mini">
+              <div class="muted" style="text-align:center;">高波動機率 (vol_pred)</div>
+              <div id="predVolVal" class="big-num mono">—</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="muted">API 狀態</div>
+            <div class="badge" style="font-size:16px;">
+              <span id="apiDot" class="dot"></span>
+              <span id="apiLabel" class="mono">—</span>
+            </div>
+            <!-- 模型資料指示燈會由 app.js 自動插入 -->
           </div>
         </div>
       </div>
