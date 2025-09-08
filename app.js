@@ -1285,7 +1285,6 @@ function mhRenderFeat(){
     if(!MH.charts.feat) return;
     window.addEventListener('resize', ()=> MH.charts.feat && MH.charts.feat.resize());
   }
-
   const rowsAll = MH.feat || [];
   const C = themeColors();
   const baseOpt = {
@@ -1300,54 +1299,60 @@ function mhRenderFeat(){
     MH.charts.feat.setOption(Object.assign({}, baseOpt, {
       title:{ text:'沒有讀到 oos_feature_importance.csv', left:'center', top:'middle',
               textStyle:{ color:C.muted, fontSize:14 } }
-    })); return;
+    }));
+    return;
   }
 
-  const sample = rowsAll[0];
-  const symK  = pickKey(sample,['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
-  const viewK = pickKey(sample,['view','View','view_name','ViewName','model_view','ModelView']);
-  const featK = pickKey(sample,['feature','Feature','feature_name','name','Name','column']);
-  const valK  = pickKey(sample,['importance','Importance','gain','Gain','weight','Weight','value','Value']);
+  const s = rowsAll[0];
+  const symK  = pickKey(s, ['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
+  const viewK = pickKey(s, ['view','View','view_name','ViewName','model_view','ModelView']);
+  const featK = pickKey(s, ['feature','Feature','feature_name','name','Name','column']);
+  const valK  = pickKey(s, ['importance','Importance','gain','Gain','weight','Weight','value','Value','importance_mean','Importance_mean']);
 
   let rows = rowsAll.slice();
-  if(symK) rows = rows.filter(r => String(r[symK]||'').toUpperCase() === MH.sym);
+  if (symK) rows = rows.filter(r => String(r[symK]||'').toUpperCase() === MH.sym);
 
   let top = [];
-  if (MH.view === 'ENS') {
-    // ✅ 先嘗試原生 ENS 列
+  const cur = String(MH.view||'').toUpperCase();
+
+  if (cur === 'ENS'){
+    // 先找原生 ENS
     const ensRows = viewK ? rows.filter(r => String(r[viewK]||'').toUpperCase()==='ENS') : [];
     if (ensRows.length){
-      top = ensRows.map(r=>({f:r?.[featK], v:+r?.[valK]}))
-                   .filter(d=>d.f!=null && Number.isFinite(d.v))
+      top = ensRows.map(r=>({ f:r?.[featK], v:Number(r?.[valK]) }))
+                   .filter(d=>d.f && Number.isFinite(d.v))
                    .sort((a,b)=>b.v-a.v).slice(0,20);
-    } else {
-      // ⬇︎ 沒有原生 ENS 再用權重加總 V* 的重要度
+    }else{
+      // 沒有原生 ENS → 用權重把 V* 加總
       const w = MH.weights?.[MH.sym] || {};
       const acc = new Map();
-      rows.forEach(r=>{
-        const vName = String(r?.[viewK]||'').toUpperCase();
-        if(!/^V\d+$/i.test(vName)) return;
-        const f=r?.[featK], iv=+r?.[valK], ww=+w[vName]||0;
-        if(!f || !Number.isFinite(iv) || !ww) return;
-        acc.set(f,(acc.get(f)||0)+ww*iv);
+      (viewK ? rows.filter(r => /^V\d+$/i.test(String(r[viewK]||''))) : rows).forEach(r=>{
+        const vtag = viewK ? String(r[viewK]).toUpperCase() : '';
+        const ww   = +w[vtag] || 0;
+        const f = r?.[featK]; const iv = Number(r?.[valK]);
+        if (!f || !Number.isFinite(iv) || !ww) return;
+        acc.set(f, (acc.get(f)||0) + ww*iv);
       });
       top = Array.from(acc.entries()).map(([f,v])=>({f,v}))
-             .sort((a,b)=>b.v-a.v).slice(0,20);
+                 .sort((a,b)=>b.v-a.v).slice(0,20);
     }
   } else {
-    // 一般單一 view
-    if(viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === MH.view.toUpperCase());
-    top = rows.map(r=>({f:r?.[featK], v:+r?.[valK]}))
-              .filter(d=>d.f!=null && Number.isFinite(d.v))
+    // 一般單一 view（沒有 view 欄位就不過濾）
+    if (viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === cur);
+    top = rows.map(r=>({ f:r?.[featK], v:Number(r?.[valK]) }))
+              .filter(d=>d.f && Number.isFinite(d.v))
               .sort((a,b)=>b.v-a.v).slice(0,20);
   }
 
-  if(!top.length){
+  if (!top.length){
+    console.warn('[feat] key detection miss', {symK, viewK, featK, valK, sample:s});
     MH.charts.feat.setOption(Object.assign({}, baseOpt, {
       title:{ text:'沒有對應欄位或數值為空', left:'center', top:'middle',
               textStyle:{ color:C.muted, fontSize:14 } }
-    })); return;
+    }));
+    return;
   }
+
   MH.charts.feat.setOption(Object.assign({}, baseOpt, {
     yAxis:{ type:'category', data: top.map(x=>x.f).reverse(), axisLabel:{ color:C.muted } },
     series:[{ type:'bar', data: top.map(x=>x.v).reverse(), barMaxWidth:22 }]
@@ -1447,16 +1452,33 @@ function mhRenderBT(){
 
 function mhRefreshViewOptions(){
   const sel = document.getElementById('mhView');
-  // 直接從資料取 view 清單（已含 ENS 就不手動加）
-  let views = MH.train?.[MH.sym] ? Object.keys(MH.train[MH.sym]) : ['V1','V2','V3','V4'];
-  // 排序：V1…Vn、其他（如 ENS）放後面
-  views.sort((a,b)=> {
+
+  const viewsFromTrain = MH.train?.[MH.sym] ? Object.keys(MH.train[MH.sym]) : [];
+
+  // 從 OOS 檔抓出出現過的 view（若有）
+  let viewsFromFeat = [];
+  if (Array.isArray(MH.feat) && MH.feat.length){
+    const s = MH.feat[0];
+    const viewK = pickKey(s, ['view','View','view_name','ViewName','model_view','ModelView']);
+    if (viewK){
+      viewsFromFeat = Array.from(new Set(
+        MH.feat.map(r => String(r[viewK]||'').trim()).filter(Boolean).map(v=>v.toUpperCase())
+      ));
+    }
+  }
+
+  let views = Array.from(new Set([...viewsFromTrain, ...viewsFromFeat]));
+  if (!views.map(v=>String(v).toUpperCase()).includes('ENS')) views.push('ENS'); // ✅ 保底加上 ENS
+
+  // 排序：V1..Vn 先，其他（含 ENS）後
+  views.sort((a,b)=>{
     const na = +String(a).match(/\d+/)?.[0] ?? 999;
     const nb = +String(b).match(/\d+/)?.[0] ?? 999;
-    return (na-nb) || a.localeCompare(b);
+    return (na-nb) || String(a).localeCompare(String(b));
   });
+
   sel.innerHTML = views.map(v=>`<option>${v}</option>`).join('');
-  if(!views.includes(MH.view)) MH.view = views[0];
+  if (!views.includes(MH.view)) MH.view = views[0];
   sel.value = MH.view;
 }
 
