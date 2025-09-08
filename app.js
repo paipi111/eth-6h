@@ -1236,14 +1236,42 @@ async function mhLoadAll(){
 function mhFmt(x,d=3){ if(x==null||x==='')return '—'; const n=Number(x); return Number.isNaN(n)? String(x): n.toFixed(d); }
 
 function mhRenderKPIs(){
-  const t = MH.train?.[MH.sym]?.[MH.view];
-  const dir = t?.dir_avg, vol = t?.vol_avg, w = MH.weights?.[MH.sym]?.[MH.view];
-  document.getElementById('mhDirF1').textContent  = mhFmt(dir?.f1);
-  document.getElementById('mhDirAUC').textContent = mhFmt(dir?.auc);
-  document.getElementById('mhDirBACC').textContent= mhFmt(dir?.bacc);
-  document.getElementById('mhVolACC').textContent = mhFmt(vol?.acc);
-  document.getElementById('mhVolF1').textContent  = mhFmt(vol?.macro_f1);
-  document.getElementById('mhViewW').textContent  = (w!=null)? mhFmt(w) : '—';
+  const sym = MH.sym, view = MH.view;
+  const t = MH.train?.[sym]?.[view];
+  const wAll = MH.weights?.[sym] || {};
+
+  let dirF1, dirAUC, dirBACC, volACC, volF1;
+
+  if (t) {
+    // ✅ 原生 view（包含 ENS）直接取
+    dirF1  = t?.dir_avg?.f1;
+    dirAUC = t?.dir_avg?.auc;
+    dirBACC= t?.dir_avg?.bacc;
+    volACC = t?.vol_avg?.acc;
+    volF1  = t?.vol_avg?.macro_f1;
+  } else if (view === 'ENS') {
+    // ⬇︎ 沒有原生 ENS 時才 fallback：用權重對 V* 加權
+    const views = Object.keys(MH.train?.[sym] || {}).filter(v => /^V\d+$/i.test(v));
+    let sw=0,f1=0,auc=0,bacc=0,vacc=0,vmacro=0;
+    views.forEach(v=>{
+      const w = +wAll[v] || 0;
+      const tv = MH.train[sym][v] || {};
+      const d = tv.dir_avg || {}, vl = tv.vol_avg || {};
+      f1+=w*(+d.f1||0); auc+=w*(+d.auc||0); bacc+=w*(+d.bacc||0);
+      vacc+=w*(+vl.acc||0); vmacro+=w*(+vl.macro_f1||0); sw+=w;
+    });
+    if (sw>0){ dirF1=f1/sw; dirAUC=auc/sw; dirBACC=bacc/sw; volACC=vacc/sw; volF1=vmacro/sw; }
+  }
+
+  document.getElementById('mhDirF1').textContent   = mhFmt(dirF1);
+  document.getElementById('mhDirAUC').textContent  = mhFmt(dirAUC);
+  document.getElementById('mhDirBACC').textContent = mhFmt(dirBACC);
+  document.getElementById('mhVolACC').textContent  = mhFmt(volACC);
+  document.getElementById('mhVolF1').textContent   = mhFmt(volF1);
+
+  // View 權重卡：原生 ENS 顯示「—」
+  const w = wAll?.[view];
+  document.getElementById('mhViewW').textContent = (view==='ENS') ? '—' : (w!=null ? mhFmt(w) : '—');
 }
 
 function pickKey(sample, candidates){
@@ -1253,10 +1281,10 @@ function pickKey(sample, candidates){
 
 function mhRenderFeat(){
   if(!MH.charts.feat){
-  MH.charts.feat = initEC('mhFeat');   // ← 用 initEC
-  if(!MH.charts.feat) return;          // ← 沒容器就跳出
-  window.addEventListener('resize', ()=> MH.charts.feat && MH.charts.feat.resize());
-}
+    MH.charts.feat = initEC('mhFeat');
+    if(!MH.charts.feat) return;
+    window.addEventListener('resize', ()=> MH.charts.feat && MH.charts.feat.resize());
+  }
 
   const rowsAll = MH.feat || [];
   const C = themeColors();
@@ -1268,41 +1296,58 @@ function mhRenderFeat(){
     series:[{ type:'bar', data:[], name:'重要度', barMaxWidth:22 }],
     tooltip: tipStyle('item')
   };
-
   if(!rowsAll.length){
     MH.charts.feat.setOption(Object.assign({}, baseOpt, {
       title:{ text:'沒有讀到 oos_feature_importance.csv', left:'center', top:'middle',
               textStyle:{ color:C.muted, fontSize:14 } }
-    }));
-    return;
+    })); return;
   }
 
   const sample = rowsAll[0];
-  const symK  = pickKey(sample, ['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
-  const viewK = pickKey(sample, ['view','View','view_name','ViewName','model_view','ModelView']);
-  const featK = pickKey(sample, ['feature','Feature','feature_name','name','Name','column']);
-  const valK  = pickKey(sample, ['importance','Importance','gain','Gain','weight','Weight','value','Value']);
+  const symK  = pickKey(sample,['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
+  const viewK = pickKey(sample,['view','View','view_name','ViewName','model_view','ModelView']);
+  const featK = pickKey(sample,['feature','Feature','feature_name','name','Name','column']);
+  const valK  = pickKey(sample,['importance','Importance','gain','Gain','weight','Weight','value','Value']);
 
   let rows = rowsAll.slice();
-  if(symK)  rows = rows.filter(r => String(r[symK]||'').toUpperCase() === MH.sym);
-  if(viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === MH.view.toUpperCase());
-  // 若篩到空，退回「不過濾 symbol/view」
-  if(!rows.length) rows = rowsAll.slice();
+  if(symK) rows = rows.filter(r => String(r[symK]||'').toUpperCase() === MH.sym);
 
-  const top = rows
-    .map(r => ({ f: r?.[featK], v: Number(r?.[valK]) }))
-    .filter(d => d.f != null && Number.isFinite(d.v))
-    .sort((a,b)=> b.v - a.v)
-    .slice(0, 20);
+  let top = [];
+  if (MH.view === 'ENS') {
+    // ✅ 先嘗試原生 ENS 列
+    const ensRows = viewK ? rows.filter(r => String(r[viewK]||'').toUpperCase()==='ENS') : [];
+    if (ensRows.length){
+      top = ensRows.map(r=>({f:r?.[featK], v:+r?.[valK]}))
+                   .filter(d=>d.f!=null && Number.isFinite(d.v))
+                   .sort((a,b)=>b.v-a.v).slice(0,20);
+    } else {
+      // ⬇︎ 沒有原生 ENS 再用權重加總 V* 的重要度
+      const w = MH.weights?.[MH.sym] || {};
+      const acc = new Map();
+      rows.forEach(r=>{
+        const vName = String(r?.[viewK]||'').toUpperCase();
+        if(!/^V\d+$/i.test(vName)) return;
+        const f=r?.[featK], iv=+r?.[valK], ww=+w[vName]||0;
+        if(!f || !Number.isFinite(iv) || !ww) return;
+        acc.set(f,(acc.get(f)||0)+ww*iv);
+      });
+      top = Array.from(acc.entries()).map(([f,v])=>({f,v}))
+             .sort((a,b)=>b.v-a.v).slice(0,20);
+    }
+  } else {
+    // 一般單一 view
+    if(viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === MH.view.toUpperCase());
+    top = rows.map(r=>({f:r?.[featK], v:+r?.[valK]}))
+              .filter(d=>d.f!=null && Number.isFinite(d.v))
+              .sort((a,b)=>b.v-a.v).slice(0,20);
+  }
 
   if(!top.length){
     MH.charts.feat.setOption(Object.assign({}, baseOpt, {
       title:{ text:'沒有對應欄位或數值為空', left:'center', top:'middle',
               textStyle:{ color:C.muted, fontSize:14 } }
-    }));
-    return;
+    })); return;
   }
-
   MH.charts.feat.setOption(Object.assign({}, baseOpt, {
     yAxis:{ type:'category', data: top.map(x=>x.f).reverse(), axisLabel:{ color:C.muted } },
     series:[{ type:'bar', data: top.map(x=>x.v).reverse(), barMaxWidth:22 }]
@@ -1331,12 +1376,17 @@ function mhRenderOOF(){
   thead.innerHTML = `<tr><th>Symbol</th><th>View</th><th>Fold</th><th>ACC</th><th>F1</th><th>AUC</th><th>BACC</th></tr>`;
   tbody.innerHTML = '';
 
+  if (MH.view === 'ENS') {
+    tbody.innerHTML = `<tr><td colspan="7">Ensemble 無單一折數；上方 KPI 已為依權重的加權平均。</td></tr>`;
+    return;
+  }
+
+  // ……下面保留你原本的實作……
   const rowsAll = MH.oof || [];
   if(!rowsAll.length){
     tbody.innerHTML = `<tr><td colspan="7">—</td></tr>`;
     return;
   }
-
   const s = rowsAll[0];
   const symK  = pickKey(s, ['symbol','Symbol','coin','Coin','asset','Asset','ticker','Ticker','asset_code']);
   const viewK = pickKey(s, ['view','View','view_name','ViewName','model_view','ModelView']);
@@ -1351,17 +1401,11 @@ function mhRenderOOF(){
   if(viewK) rows = rows.filter(r => String(r[viewK]||'').toUpperCase() === MH.view.toUpperCase());
 
   if(!rows.length){
-    tbody.innerHTML = `<tr><td colspan="5">（沒有符合目前 Symbol/View 的紀錄）</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7">（沒有符合目前 Symbol/View 的紀錄）</td></tr>`;
     return;
   }
 
-  const fmt = (k,r) => {
-    if(!k) return '—';
-    const v = r[k];
-    const n = Number(v);
-    return (v==null || v==='') ? '—' : Number.isFinite(n) ? n.toFixed(3) : String(v);
-  };
-
+  const fmt = (k,r) => { if(!k) return '—'; const v=r[k], n=Number(v); return (v==null||v==='')?'—':(Number.isFinite(n)?n.toFixed(3):String(v)); };
   rows.forEach(r=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -1371,8 +1415,7 @@ function mhRenderOOF(){
       <td class="mono">${fmt(accK,r)}</td>
       <td class="mono">${fmt(f1K,r)}</td>
       <td class="mono">${fmt(aucK,r)}</td>
-      <td class="mono">${fmt(baccK,r)}</td>
-    `;
+      <td class="mono">${fmt(baccK,r)}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -1404,7 +1447,14 @@ function mhRenderBT(){
 
 function mhRefreshViewOptions(){
   const sel = document.getElementById('mhView');
-  const views = MH.train?.[MH.sym] ? Object.keys(MH.train[MH.sym]) : ['V1','V2','V3','V4'];
+  // 直接從資料取 view 清單（已含 ENS 就不手動加）
+  let views = MH.train?.[MH.sym] ? Object.keys(MH.train[MH.sym]) : ['V1','V2','V3','V4'];
+  // 排序：V1…Vn、其他（如 ENS）放後面
+  views.sort((a,b)=> {
+    const na = +String(a).match(/\d+/)?.[0] ?? 999;
+    const nb = +String(b).match(/\d+/)?.[0] ?? 999;
+    return (na-nb) || a.localeCompare(b);
+  });
   sel.innerHTML = views.map(v=>`<option>${v}</option>`).join('');
   if(!views.includes(MH.view)) MH.view = views[0];
   sel.value = MH.view;
