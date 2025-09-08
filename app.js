@@ -919,6 +919,22 @@ function renderCoinPage(coin, rows){
   renderSparks(rows);
 }
 
+(function bindSparkToggle(){
+  const btn = document.getElementById('sparkToggle');
+  const wrap = document.getElementById('sparkWrap');
+  if(!btn || !wrap) return;
+
+  btn.onclick = () => {
+    const show = wrap.style.display === 'none';
+    wrap.style.display = show ? 'block' : 'none';
+    btn.textContent = show ? '收合' : '展開';
+    if (show) {
+      // 確保展開時重繪（state.ohlc 由 enterCoin 填好）
+      renderSparks(state.ohlc || []);
+    }
+  };
+})();
+
 // ====== 進入分頁 ======
 async function enterCoin(coin){
   $("#route-home").style.display = "none";

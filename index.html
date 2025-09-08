@@ -328,13 +328,17 @@
             </div>
             <!-- 模型資料指示燈會由 app.js 自動插入 -->
           </div>
-        </div>
-      </div>
-      <!-- 迷你走勢：下方獨立一整格 -->
-      <div class="row">
-        <div class="card" style="flex:1;">
-          <div class="title">📈 指標迷你走勢</div>
-          <div id="indSparks" class="sparks"></div>
+          <div class="card" id="sparksCard" style="margin-top:8px;">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <div class="title" style="font-size:16px;">📈 指標迷你走勢</div>
+              <button id="sparkToggle" class="btn" style="padding:4px 10px;">展開</button>
+            </div>
+
+            <!-- 可收合內容：預設收合，展開後高度與左側交易日誌一致 -->
+            <div id="sparkWrap" class="tablewrap" style="max-height:360px; overflow:auto; display:none;">
+              <div id="indSparks" class="sparks"></div>
+            </div>
+          </div>
         </div>
       </div>
 
