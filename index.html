@@ -318,13 +318,21 @@
             <div id="predSummary" class="mono" style="margin-top:6px; line-height:1.6; font-size:18px; font-weight:700;">—</div>
           </div>
 
-          <!-- 最近 5 次預測 -->
           <div class="card">
-            <div class="title">最近 5 次預測</div>
-            <table id="recentPredTable">
-              <thead><tr><th>時間</th><th>預測</th><th>幅度</th><th>真實</th></tr></thead>
-              <tbody></tbody>
-            </table>
+            <div class="title">交易日誌（全部，無限下拉）</div>
+            <div class="tablewrap" id="tradeWrap" style="max-height:360px;">
+              <table id="recentPredTable" class="metrics">
+                <thead>
+                  <tr>
+                    <th>開倉</th><th>平倉</th><th>方向</th>
+                    <th class="num">開</th><th class="num">平</th>
+                    <th class="num">報酬%</th><th class="num">天數</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div id="tradeHint" class="muted" style="font-size:12px;margin-top:6px;">下拉載入更多…</div>
           </div>
         </div>
       </div>

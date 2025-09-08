@@ -48,6 +48,16 @@ const SB_HEADERS = {
   'Accept-Profile': 'predictor', // 你的 schema
 };
 
+// 交易日誌分頁器（無限下拉）
+const TradeLog = {
+  asset:'BTC', view:'V1',
+  pageSize: 200,          // 每次抓幾筆（可調）
+  lastOpenDt: '',         // keyset 游標（用 open_dt）
+  offset: 0,              // Range fallback 時使用
+  loading: false,
+  done: false
+};
+
 function fmtNum(x){
   if (x==null || isNaN(x)) return '—';
   const ax = Math.abs(x);
@@ -940,7 +950,7 @@ function renderCoinPage(coin, rows){
   // 更新「模型資料」指示燈
   if (typeof renderModelStatus === 'function') renderModelStatus();
 
-  loadRecentPredictions();
+  initTradeLogInfinite(state.route || 'BTC');
   
   renderSparks(rows);
 }
@@ -1028,6 +1038,218 @@ async function fetchTrades(asset='BTC', view='V1'){
   });
   const url = `${SB_BASE}/api_trades?${q}`;
   return fetch(url,{ headers:SB_HEADERS }).then(r=>r.json());
+}
+
+// 交易日誌：抓最近 50 筆（按開倉時間由新到舊）
+async function fetchTradesLatest(asset='BTC', view='V1', limit=50){
+  const q = new URLSearchParams({
+    asset_code:`eq.${asset}`,
+    view_tag:`eq.${view}`,
+    strategy:`eq.atr1pct_long_only`,
+    order:'open_dt.desc',
+    limit:String(limit)
+  });
+  const url = `${SB_BASE}/api_trades?${q}`;
+  const r = await fetch(url,{ headers:SB_HEADERS });
+  if(!r.ok) throw new Error('api_trades failed');
+  return r.json();
+}
+
+function renderTradeLog(rows){
+  const tbody = document.querySelector('#recentPredTable tbody');
+  if(!tbody){ return; }
+
+  const get = (row, ks)=> {
+    for(const k of ks){ if(k in row) return row[k]; }
+    return null;
+  };
+  const fmtNum = (v, d=2)=> Number.isFinite(+v) ? (+v).toFixed(d) : '—';
+  const fmtPct = (v)=> {
+    if(v==null) return '—';
+    const n = +v;
+    if(!Number.isFinite(n)) return '—';
+    // 若是小數就 *100，若已是百分比（>1）就直接用
+    const p = Math.abs(n) <= 1 ? n*100 : n;
+    return p.toFixed(2) + '%';
+  };
+
+  const html = (rows||[]).map(row=>{
+    const open_dt  = get(row, ['open_dt','entry_dt','open_date']);
+    const close_dt = get(row, ['close_dt','exit_dt','close_date']);
+    const sideRaw  = (get(row, ['side','direction']) || 'long').toString().toLowerCase();
+    const sideStr  = sideRaw.includes('short') ? 'short' : 'long';
+    const sideCol  = sideStr==='short' ? '#ef4444' : '#22c55e';
+
+    const open_px  = +get(row, ['open_px','entry_px','px_open','open_price']);
+    const close_px = +get(row, ['close_px','exit_px','px_close','close_price']);
+
+    let ret = get(row, ['ret','ret_pct','pnl_pct','return_pct']);
+    if(ret==null && Number.isFinite(open_px) && Number.isFinite(close_px)){
+      ret = (close_px / open_px - 1);   // 自算報酬
+    }
+
+    const days = get(row, ['holding_days','days','n_days']);
+
+    const col = (+ret >= 0) ? '#22c55e' : '#ef4444';
+    return `
+      <tr>
+        <td class="mono">${open_dt || '—'}</td>
+        <td class="mono">${close_dt || '—'}</td>
+        <td style="color:${sideCol};font-weight:700;">${sideStr}</td>
+        <td class="mono num">${fmtNum(open_px)}</td>
+        <td class="mono num">${fmtNum(close_px)}</td>
+        <td class="mono num" style="color:${col};font-weight:700;">${fmtPct(ret)}</td>
+        <td class="mono num">${Number.isFinite(+days) ? +days : '—'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  tbody.innerHTML = html || `<tr><td colspan="7">—</td></tr>`;
+}
+
+// A) 初始化（重設狀態 + 綁定 scroll 事件）
+function initTradeLogInfinite(asset){
+  TradeLog.asset   = asset || 'BTC';
+  TradeLog.view    = 'V1';
+  TradeLog.pageSize= 200;
+  TradeLog.lastOpenDt = '';
+  TradeLog.offset  = 0;
+  TradeLog.loading = false;
+  TradeLog.done    = false;
+
+  const tbody = document.querySelector('#recentPredTable tbody');
+  const wrap  = document.getElementById('tradeWrap');
+  const hint  = document.getElementById('tradeHint');
+  if (tbody) tbody.innerHTML = '';
+  if (hint)  hint.textContent = '下拉載入更多…';
+
+  if (wrap){
+    // 先解除舊的（避免重複綁定）
+    wrap.onscroll = null;
+    wrap.onscroll = () => {
+      if (wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 8){
+        loadMoreTrades();   // 觸底 → 載入更多
+      }
+    };
+  }
+  // 先載入第一頁
+  loadMoreTrades(true);
+}
+
+// B) 取下一頁（優先 keyset，用 open_dt；失敗就 Range fallback）
+async function loadMoreTrades(reset=false){
+  if (TradeLog.loading || TradeLog.done) return;
+  const tbody = document.querySelector('#recentPredTable tbody');
+  const hint  = document.getElementById('tradeHint');
+  if (!tbody) return;
+
+  if (reset){ TradeLog.lastOpenDt=''; TradeLog.offset=0; TradeLog.done=false; tbody.innerHTML=''; }
+  TradeLog.loading = true;
+  if (hint) hint.textContent = '載入中…';
+
+  let rows = [];
+  // --- Keyset（open_dt < lastOpenDt）
+  try {
+    const q = new URLSearchParams({
+      asset_code: `eq.${TradeLog.asset}`,
+      view_tag:   `eq.${TradeLog.view}`,
+      strategy:   `eq.atr1pct_long_only`,
+      order:      'open_dt.desc',
+      limit:      String(TradeLog.pageSize),
+      ...(TradeLog.lastOpenDt ? { open_dt: `lt.${TradeLog.lastOpenDt}` } : {})
+    });
+    const url = `${SB_BASE}/api_trades?${q}`;
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) throw new Error('keyset failed');
+    rows = await r.json();
+  } catch (e) {
+    // --- Range fallback（某些 view 不支援 open_dt 過濾）
+    try {
+      const q = new URLSearchParams({
+        asset_code: `eq.${TradeLog.asset}`,
+        view_tag:   `eq.${TradeLog.view}`,
+        strategy:   `eq.atr1pct_long_only`,
+        order:      'open_dt.desc'
+      });
+      const url = `${SB_BASE}/api_trades?${q}`;
+      const r = await fetch(url, {
+        headers: { ...SB_HEADERS, Range: `rows=${TradeLog.offset}-${TradeLog.offset + TradeLog.pageSize - 1}` }
+      });
+      if (!r.ok) throw new Error('range failed');
+      rows = await r.json();
+      TradeLog.offset += rows.length;
+    } catch (e2) {
+      console.warn('[tradeLog] both paginations failed', e2);
+      if (hint) hint.textContent = '載入失敗';
+      TradeLog.loading = false;
+      return;
+    }
+  }
+
+  renderTradeLogAppend(rows);
+
+  // 更新游標 / 是否到底
+  if (rows.length < TradeLog.pageSize){
+    TradeLog.done = true;
+    if (hint) hint.textContent = '已到底';
+  } else {
+    if (hint) hint.textContent = '下拉載入更多…';
+  }
+  // 嘗試從多種欄位抓 open_dt（保險）
+  const tail = rows.at(-1) || {};
+  TradeLog.lastOpenDt = tail.open_dt || tail.entry_dt || TradeLog.lastOpenDt;
+
+  TradeLog.loading = false;
+}
+
+// C) 追加渲染（append，不覆蓋）
+function renderTradeLogAppend(rows){
+  const tbody = document.querySelector('#recentPredTable tbody');
+  if(!tbody) return;
+
+  const get = (row, ks)=> { for(const k of ks){ if(k in row) return row[k]; } return null; };
+  const fmtNum = (v, d=2)=> Number.isFinite(+v) ? (+v).toFixed(d) : '—';
+  const fmtPct = (v)=> {
+    if(v==null) return '—';
+    const n = +v; if(!Number.isFinite(n)) return '—';
+    const p = Math.abs(n) <= 1 ? n*100 : n;   // 比例 or 百分比 都支援
+    return p.toFixed(2) + '%';
+  };
+
+  const html = (rows||[]).map(row=>{
+    const open_dt  = get(row, ['open_dt','entry_dt','open_date']);
+    const close_dt = get(row, ['close_dt','exit_dt','close_date']);
+    const sideRaw  = (get(row, ['side','direction']) || 'long').toString().toLowerCase();
+    const sideStr  = sideRaw.includes('short') ? 'short' : 'long';
+    const sideCol  = sideStr==='short' ? '#ef4444' : '#22c55e';
+    const open_px  = +get(row, ['open_px','entry_px','px_open','open_price']);
+    const close_px = +get(row, ['close_px','exit_px','px_close','close_price']);
+
+    let ret = get(row, ['ret','ret_pct','pnl_pct','return_pct']);
+    if(ret==null && Number.isFinite(open_px) && Number.isFinite(close_px)){
+      ret = (close_px / open_px - 1);
+    }
+    const days = get(row, ['holding_days','days','n_days']);
+    const col  = (+ret >= 0) ? '#22c55e' : '#ef4444';
+
+    return `
+      <tr>
+        <td class="mono">${open_dt || '—'}</td>
+        <td class="mono">${close_dt || '—'}</td>
+        <td style="color:${sideCol};font-weight:700;">${sideStr}</td>
+        <td class="mono num">${fmtNum(open_px)}</td>
+        <td class="mono num">${fmtNum(close_px)}</td>
+        <td class="mono num" style="color:${col};font-weight:700;">${fmtPct(ret)}</td>
+        <td class="mono num">${Number.isFinite(+days) ? +days : '—'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  if (!html && !tbody.children.length){
+    tbody.innerHTML = `<tr><td colspan="7">—</td></tr>`;
+  } else {
+    tbody.insertAdjacentHTML('beforeend', html);
+  }
 }
 
 /* ===================== Home：模型檔案總覽（覆蓋 renderHome） ===================== */
