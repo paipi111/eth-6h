@@ -1020,8 +1020,18 @@ async function fetchTradesLatest(asset='BTC', view='V1', limit=50){
 }
 
 function renderTradeLog(rows){
-  const tbody = document.querySelector('#recentPredTable tbody');
-  if(!tbody) return;
+  const table = document.getElementById('recentPredTable');
+  if(!table) return;
+
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+
+  // 強制只有 5 欄（清掉舊的報酬%、天數）
+  thead.innerHTML = `
+    <tr>
+      <th>開倉</th><th>平倉</th><th>方向</th>
+      <th class="num">開</th><th class="num">平</th>
+    </tr>`;
 
   const get = (row, ks)=> { for(const k of ks){ if(k in row) return row[k]; } return null; };
   const fmtNum = (v, d=2)=> Number.isFinite(+v) ? (+v).toFixed(d) : '—';
@@ -1043,8 +1053,7 @@ function renderTradeLog(rows){
         <td style="color:${sideCol};font-weight:700;">${sideStr}</td>
         <td class="mono num">${fmtNum(open_px)}</td>
         <td class="mono num">${fmtNum(close_px)}</td>
-      </tr>
-    `;
+      </tr>`;
   }).join('');
 
   tbody.innerHTML = html || `<tr><td colspan="5">—</td></tr>`;
