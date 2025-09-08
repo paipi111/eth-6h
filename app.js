@@ -398,17 +398,17 @@ async function fetchIndicatorsFromSB(coin) {
   if (!INDICATORS_TABLE) return null;
   const sym = String(coin || "").toUpperCase();
   const base = SUPABASE_URL.replace(/\/$/, '');
-  const pageSize = 2000;   // 視需求調整
-  let lastDt = '';         // 字串日期游標
+  const pageSize = 2000;
+  let lastTs = 0;
   let all = [];
 
   while (true) {
     const q = new URLSearchParams({
-      select: 'dt,asset_code,px_close,rsi14,rsi30,macd,macd_signal,ma5r,ma20r,ma50r,band_bb_w,band_kc_w,atr14,vol_z20,ret_1d,ret_5d,ret_20d,oi_change,oi_pct1,funding_z7,liq_abs,liq_net,exch_balance_pct_1d,week_ret_1w,week_rsi_1w,week_ma_cross_1w',
+      select: 'dt,asset_code,px_close,rsi14,atr14,...,ts_utc',
       asset_code: `eq.${sym}`,
-      order: 'dt.asc',
+      order: 'ts_utc.asc',
       limit: String(pageSize),
-      ...(lastDt ? { dt: `gt.${lastDt}` } : {})
+      ...(lastTs ? { ts_utc: `gt.${lastTs}` } : {})
     });
     const url = `${base}/rest/v1/${INDICATORS_TABLE}?${q.toString()}`;
 
@@ -424,12 +424,12 @@ async function fetchIndicatorsFromSB(coin) {
       });
     } catch (e) {
       console.warn('[indicators] Supabase 取數失敗', e);
-      return null; // 交給上層 fallback
+      return null;
     }
 
     if (!rows.length) break;
     all = all.concat(rows);
-    lastDt = rows[rows.length - 1].dt;
+    lastTs = rows[rows.length - 1].ts_utc;   // ⬅️ 改用 bigint 游標
     if (rows.length < pageSize) break;
   }
 
