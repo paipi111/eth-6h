@@ -183,57 +183,99 @@ function groupByDate(rows) {
 }
 
 // 取得今日「波動」預測（高波動機率）——強化版：支援 view 與 rpc 兩種實作
+// 最穩健版本：嘗試多個來源與欄位別名，抓「今日高波動機率」
 async function fetchTodayVolatility(asset = 'BTC') {
-  const tryFetch = async (url) => {
-    const r = await fetch(url, { headers: SB_HEADERS });
+  const tryJSON = async (url, init) => {
+    const r = await fetch(url, init);
     if (!r.ok) throw new Error(`[vol] ${r.status} ${r.statusText} @ ${url}`);
     return r.json();
   };
+  const mapRow = (row) => {
+    // 欄位別名自動對應
+    const prob = Number(
+      row.prob_vol ?? row.y_pred ?? row.prob ?? row.p ?? row.prob_high_vol ?? NaN
+    );
+    const model =
+      row.model_tag ?? row.view_tag ?? row.model ?? row.view ?? row.tag ?? null;
+    const dt = row.dt ?? row.pred_dt ?? row.ts ?? row.date ?? null;
+    return Number.isFinite(prob) ? { prob_vol: prob, model, dt } : null;
+  };
 
-  const qs = new URLSearchParams({
-    asset_code: `eq.${asset}`,
-    select: 'asset_code,model_tag,dt,prob_vol,y_pred'   // ← 明確要欄位
-  });
-
-  let rows = [];
+  // A. view: predictor.api_vol_today?asset_code=eq.BTC
   try {
-    // 情況 A：api_vol_today 是一個 VIEW（常見）
-    rows = await tryFetch(`${SB_BASE}/api_vol_today?${qs}`);
-  } catch (e1) {
-    console.warn('[vol] view 失敗，嘗試 rpc', e1);
-    try {
-      // 情況 B：api_vol_today 是一個 RPC（function）
-      // 許多團隊把參數放在 JSON body；這裡同時嘗試 querystring 與 body 兩種
-      const rpcUrl = `${SB_BASE}/rpc/api_vol_today`;
-      let r = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { ...SB_HEADERS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ asset_code: asset })
-      });
-      if (!r.ok) throw new Error(`[vol-rpc] ${r.status} ${r.statusText}`);
-      rows = await r.json();
-      if (!Array.isArray(rows)) rows = Array.isArray(rows?.data) ? rows.data : [rows];
-    } catch (e2) {
-      console.error('[vol] view/rpc 都失敗', e2);
-      return null;
+    const qA = new URLSearchParams({
+      select: 'asset_code,coin,model_tag,view_tag,dt,prob_vol,y_pred,prob',
+      or: `(asset_code.eq.${asset},coin.eq.${asset})`
+    });
+    let rows = await tryJSON(`${SB_BASE}/api_vol_today?${qA.toString()}`, { headers: SB_HEADERS });
+    if (Array.isArray(rows) && rows.length) {
+      const ens = rows.find(r => String(r.model_tag||r.view_tag||'').toUpperCase()==='ENS');
+      const base = ens || rows[0];
+      const m = mapRow(base);
+      if (m) { console.log('[vol] from view/api_vol_today', m); return m; }
     }
+  } catch (e) { console.warn('[vol] view/api_vol_today miss', e.message); }
+
+  // B. table: predictions_vol_daily / vol_predictions_daily
+  const tableCandidates = ['predictions_vol_daily', 'vol_predictions_daily', 'predictions_vol'];
+  for (const tbl of tableCandidates) {
+    try {
+      const qB = new URLSearchParams({
+        select: 'asset_code,coin,model_tag,view_tag,dt,prob_vol,y_pred,prob',
+        or: `(asset_code.eq.${asset},coin.eq.${asset})`,
+        order: 'dt.desc',
+        limit: '8'
+      });
+      let rows = await tryJSON(`${SB_BASE}/${tbl}?${qB.toString()}`, { headers: SB_HEADERS });
+      if (Array.isArray(rows) && rows.length) {
+        const ens = rows.find(r => String(r.model_tag||r.view_tag||'').toUpperCase()==='ENS');
+        const base = ens || rows[0];
+        const m = mapRow(base);
+        if (m) { console.log(`[vol] from table/${tbl}`, m); return m; }
+      }
+    } catch (e) { console.warn(`[vol] table/${tbl} miss`, e.message); }
   }
 
-  if (!rows?.length) {
-    console.warn('[vol] 空結果：', rows);
-    return null;
-  }
+  // C. 共表：predictions_daily（以 target/label 區分）
+  // 常見欄位：target='VOL' 或 label='vol' / task='volatility'
+  try {
+    const qC = new URLSearchParams({
+      select: 'asset_code,coin,model_tag,view_tag,dt,prob_vol,y_pred,prob,target,label,task',
+      or: `(asset_code.eq.${asset},coin.eq.${asset})`,
+      order: 'dt.desc',
+      limit: '20'
+    });
+    let rows = await tryJSON(`${SB_BASE}/predictions_daily?${qC.toString()}`, { headers: SB_HEADERS });
+    rows = (rows||[]).filter(r => {
+      const t = String(r.target||r.label||r.task||'').toLowerCase();
+      return t.includes('vol');
+    });
+    if (rows.length) {
+      const ens = rows.find(r => String(r.model_tag||r.view_tag||'').toUpperCase()==='ENS');
+      const base = ens || rows[0];
+      const m = mapRow(base);
+      if (m) { console.log('[vol] from predictions_daily (target=vol)', m); return m; }
+    }
+  } catch (e) { console.warn('[vol] predictions_daily miss', e.message); }
 
-  // 先找 ENS，其次第一筆；欄位可能叫 prob_vol 或 y_pred
-  const ens  = rows.find(x => String(x.model_tag || '').toUpperCase() === 'ENS');
-  const base = ens || rows[0];
-  const p = Number(base.prob_vol ?? base.y_pred ?? NaN);
-  if (!Number.isFinite(p)) {
-    console.warn('[vol] 找不到 prob_vol/y_pred 欄位：', base);
-    return null;
-  }
-  console.log('[vol] OK:', { asset, model: base.model_tag, prob_vol: p, dt: base.dt });
-  return { prob_vol: p, model: base.model_tag, dt: base.dt };
+  // D. rpc: /rpc/api_vol_today 以 JSON body 傳 asset_code
+  try {
+    const rows = await tryJSON(`${SB_BASE}/rpc/api_vol_today`, {
+      method: 'POST',
+      headers: { ...SB_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asset_code: asset })
+    });
+    const arr = Array.isArray(rows) ? rows : (Array.isArray(rows?.data) ? rows.data : [rows]);
+    if (arr.length) {
+      const ens = arr.find(r => String(r.model_tag||r.view_tag||'').toUpperCase()==='ENS');
+      const base = ens || arr[0];
+      const m = mapRow(base);
+      if (m) { console.log('[vol] from rpc/api_vol_today', m); return m; }
+    }
+  } catch (e) { console.warn('[vol] rpc/api_vol_today miss', e.message); }
+
+  console.warn('[vol] 沒找到任何來源，顯示 —');
+  return null;
 }
 
 async function fetchTodayPrediction(asset = 'BTC') {
